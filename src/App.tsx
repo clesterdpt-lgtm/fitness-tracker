@@ -1,0 +1,3183 @@
+import {
+  type CSSProperties,
+  type FormEvent,
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useState,
+} from 'react'
+import './App.css'
+import {
+  buildNutritionSeries,
+  calculateNutritionScore,
+  createDemoNutritionEntries,
+  DEFAULT_NUTRITION_TARGETS,
+  getNutritionAverage,
+  getNutritionAverageCalories,
+  getNutritionBand,
+  getNutritionLogCount,
+  sortNutritionEntries,
+  type NutritionBand,
+  type NutritionDailyPoint,
+  type NutritionEntry,
+  type NutritionTargets,
+} from './lib/nutrition'
+import {
+  buildRecoverySeries,
+  calculateRecoveryScore,
+  createDemoRecoveryEntries,
+  getRecoveryAverage,
+  getRecoveryBand,
+  getRecoveryCheckIns,
+  getRecoveryHrvAverage,
+  sortRecoveryEntries,
+  type RecoveryBand,
+  type RecoveryDailyPoint,
+  type RecoveryEntry,
+} from './lib/recovery'
+import {
+  buildDailyLoadSeries,
+  createDemoSessions,
+  createSessionLoad,
+  formatDateInput,
+  formatLongDate,
+  formatShortDate,
+  getBaselineProgress,
+  getRatioBand,
+  sortSessions,
+  type DailyLoadPoint,
+  type RatioBand,
+  type WorkloadSession,
+} from './lib/workload'
+
+type SessionFormState = {
+  title: string
+  date: string
+  duration: string
+  rpe: string
+  loadOverride: string
+  notes: string
+}
+
+type RecoveryMetricFieldKey =
+  | 'sleepQuality'
+  | 'energy'
+  | 'soreness'
+  | 'stress'
+  | 'hydration'
+
+type RecoveryFormState = {
+  date: string
+  sleepHours: string
+  hrv: string
+  sleepQuality: string
+  energy: string
+  soreness: string
+  stress: string
+  hydration: string
+  notes: string
+}
+
+type NutritionFormState = {
+  date: string
+  calories: string
+  protein: string
+  carbs: string
+  fat: string
+  hydration: string
+  notes: string
+}
+
+type NutritionTargetsFormState = {
+  calories: string
+  protein: string
+  carbs: string
+  fat: string
+  hydration: string
+}
+
+type AppSectionId =
+  | 'dashboard'
+  | 'recovery'
+  | 'workout-generator'
+  | 'nutrition'
+
+type PlaceholderSectionId = Exclude<
+  AppSectionId,
+  'dashboard' | 'recovery' | 'nutrition'
+>
+
+type AppSection = {
+  id: AppSectionId
+  label: string
+  eyebrow: string
+  summary: string
+  badge: string
+}
+
+type RecoveryMetricConfig = {
+  field: RecoveryMetricFieldKey
+  label: string
+  hint: string
+  low: string
+  high: string
+}
+
+const WORKLOAD_STORAGE_KEY = 'fitness-tracker.acwr.v1'
+const RECOVERY_STORAGE_KEY = 'fitness-tracker.recovery.v1'
+const NUTRITION_STORAGE_KEY = 'fitness-tracker.nutrition.v1'
+const NUTRITION_TARGETS_STORAGE_KEY = 'fitness-tracker.nutrition-targets.v1'
+const numberFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 0,
+})
+const sleepHoursFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+})
+const hydrationFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+})
+const APP_SECTIONS: AppSection[] = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    eyebrow: 'Live workspace',
+    summary: 'ACWR tracking, recent load, and session logging.',
+    badge: 'Live',
+  },
+  {
+    id: 'recovery',
+    label: 'Recovery',
+    eyebrow: 'Live workspace',
+    summary: 'Morning check-ins, readiness score, and recovery trends.',
+    badge: 'Live',
+  },
+  {
+    id: 'workout-generator',
+    label: 'Workout Generator',
+    eyebrow: 'Placeholder',
+    summary: 'Generate sessions from goals, time, and current load.',
+    badge: 'Soon',
+  },
+  {
+    id: 'nutrition',
+    label: 'Nutrition',
+    eyebrow: 'Live workspace',
+    summary: 'Daily targets, intake logging, and nutrition trend summaries.',
+    badge: 'Live',
+  },
+]
+const PLACEHOLDER_CONTENT: Record<
+  PlaceholderSectionId,
+  {
+    title: string
+    summary: string
+    focusAreas: string[]
+    note: string
+  }
+> = {
+  'workout-generator': {
+    title: 'Workout generator coming next',
+    summary:
+      'This area will turn your goal, available time, and current workload into suggested training sessions.',
+    focusAreas: [
+      'Generate sessions by sport or training goal',
+      'Adjust intensity from current ACWR and fatigue',
+      'Build short-term training blocks',
+    ],
+    note: 'Placeholder only for now so we can add generator logic in the next pass.',
+  },
+}
+const RECOVERY_METRICS: RecoveryMetricConfig[] = [
+  {
+    field: 'sleepQuality',
+    label: 'Sleep quality',
+    hint: 'How well did you actually sleep?',
+    low: 'restless',
+    high: 'deep',
+  },
+  {
+    field: 'energy',
+    label: 'Energy',
+    hint: 'How ready do you feel to train?',
+    low: 'flat',
+    high: 'sharp',
+  },
+  {
+    field: 'soreness',
+    label: 'Soreness',
+    hint: 'How much muscle soreness are you carrying?',
+    low: 'fresh',
+    high: 'very sore',
+  },
+  {
+    field: 'stress',
+    label: 'Stress',
+    hint: 'How loaded does today feel outside training?',
+    low: 'calm',
+    high: 'overloaded',
+  },
+  {
+    field: 'hydration',
+    label: 'Hydration',
+    hint: 'How well hydrated do you feel this morning?',
+    low: 'poor',
+    high: 'excellent',
+  },
+]
+
+function createEmptyFormState(date = formatDateInput()): SessionFormState {
+  return {
+    title: '',
+    date,
+    duration: '60',
+    rpe: '5',
+    loadOverride: '',
+    notes: '',
+  }
+}
+
+function createEmptyRecoveryFormState(date = formatDateInput()): RecoveryFormState {
+  return {
+    date,
+    sleepHours: '7.5',
+    hrv: '',
+    sleepQuality: '3',
+    energy: '3',
+    soreness: '2',
+    stress: '2',
+    hydration: '3',
+    notes: '',
+  }
+}
+
+function createEmptyNutritionFormState(date = formatDateInput()): NutritionFormState {
+  return {
+    date,
+    calories: '2400',
+    protein: '180',
+    carbs: '260',
+    fat: '75',
+    hydration: '3.0',
+    notes: '',
+  }
+}
+
+function createNutritionTargetsFormState(
+  targets: NutritionTargets = DEFAULT_NUTRITION_TARGETS,
+): NutritionTargetsFormState {
+  return {
+    calories: `${targets.calories}`,
+    protein: `${targets.protein}`,
+    carbs: `${targets.carbs}`,
+    fat: `${targets.fat}`,
+    hydration: `${targets.hydration}`,
+  }
+}
+
+function parsePositiveNumber(value: string) {
+  if (!value.trim()) {
+    return null
+  }
+
+  const parsed = Number(value)
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function parseScaleNumber(value: string) {
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return Math.min(5, Math.max(1, Math.round(parsed)))
+}
+
+function formatLoad(value: number | null) {
+  return value === null ? 'Not ready' : numberFormatter.format(value)
+}
+
+function formatRatio(value: number | null) {
+  return value === null ? '--' : value.toFixed(2)
+}
+
+function formatRecoveryScore(value: number | null) {
+  return value === null ? '--' : numberFormatter.format(value)
+}
+
+function formatSleepHours(value: number | null) {
+  return value === null ? '--' : `${sleepHoursFormatter.format(value)} h`
+}
+
+function formatHrv(value: number | null) {
+  return value === null ? '--' : `${numberFormatter.format(value)} ms`
+}
+
+function formatCalories(value: number | null) {
+  return value === null ? '--' : `${numberFormatter.format(value)} kcal`
+}
+
+function formatGrams(value: number | null) {
+  return value === null ? '--' : `${numberFormatter.format(value)} g`
+}
+
+function formatHydration(value: number | null) {
+  return value === null ? '--' : `${hydrationFormatter.format(value)} L`
+}
+
+function formatNutritionScore(value: number | null) {
+  return value === null ? '--' : numberFormatter.format(value)
+}
+
+function createEntryId(prefix: string) {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? `${prefix}-${crypto.randomUUID()}`
+    : `${prefix}-${Date.now()}`
+}
+
+function isStoredSession(value: unknown): value is WorkloadSession {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const session = value as Record<string, unknown>
+
+  return (
+    typeof session.id === 'string' &&
+    typeof session.title === 'string' &&
+    typeof session.date === 'string' &&
+    typeof session.load === 'number' &&
+    typeof session.createdAt === 'string'
+  )
+}
+
+function isStoredRecoveryEntry(value: unknown): value is RecoveryEntry {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const entry = value as Record<string, unknown>
+
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.date === 'string' &&
+    typeof entry.sleepHours === 'number' &&
+    (typeof entry.hrv === 'number' ||
+      entry.hrv === null ||
+      typeof entry.hrv === 'undefined') &&
+    typeof entry.sleepQuality === 'number' &&
+    typeof entry.energy === 'number' &&
+    typeof entry.soreness === 'number' &&
+    typeof entry.stress === 'number' &&
+    typeof entry.hydration === 'number' &&
+    typeof entry.score === 'number' &&
+    typeof entry.createdAt === 'string'
+  )
+}
+
+function isStoredNutritionEntry(value: unknown): value is NutritionEntry {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const entry = value as Record<string, unknown>
+
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.date === 'string' &&
+    typeof entry.calories === 'number' &&
+    typeof entry.protein === 'number' &&
+    typeof entry.carbs === 'number' &&
+    typeof entry.fat === 'number' &&
+    typeof entry.hydration === 'number' &&
+    typeof entry.score === 'number' &&
+    typeof entry.createdAt === 'string'
+  )
+}
+
+function isStoredNutritionTargets(value: unknown): value is NutritionTargets {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const targets = value as Record<string, unknown>
+
+  return (
+    typeof targets.calories === 'number' &&
+    typeof targets.protein === 'number' &&
+    typeof targets.carbs === 'number' &&
+    typeof targets.fat === 'number' &&
+    typeof targets.hydration === 'number'
+  )
+}
+
+function loadStoredSessions() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(WORKLOAD_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortSessions(
+      parsed.filter(isStoredSession).map((session) => ({
+        ...session,
+        duration: typeof session.duration === 'number' ? session.duration : null,
+        rpe: typeof session.rpe === 'number' ? session.rpe : null,
+        notes: typeof session.notes === 'string' ? session.notes : '',
+      })),
+    )
+  } catch {
+    return []
+  }
+}
+
+function loadStoredRecoveryEntries() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(RECOVERY_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortRecoveryEntries(
+      parsed.filter(isStoredRecoveryEntry).map((entry) => ({
+        ...entry,
+        hrv: typeof entry.hrv === 'number' ? entry.hrv : null,
+        notes: typeof entry.notes === 'string' ? entry.notes : '',
+      })),
+    )
+  } catch {
+    return []
+  }
+}
+
+function loadStoredNutritionEntries() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(NUTRITION_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortNutritionEntries(
+      parsed.filter(isStoredNutritionEntry).map((entry) => ({
+        ...entry,
+        notes: typeof entry.notes === 'string' ? entry.notes : '',
+      })),
+    )
+  } catch {
+    return []
+  }
+}
+
+function loadStoredNutritionTargets() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_NUTRITION_TARGETS
+  }
+
+  try {
+    const raw = window.localStorage.getItem(NUTRITION_TARGETS_STORAGE_KEY)
+
+    if (!raw) {
+      return DEFAULT_NUTRITION_TARGETS
+    }
+
+    const parsed = JSON.parse(raw)
+
+    return isStoredNutritionTargets(parsed)
+      ? parsed
+      : DEFAULT_NUTRITION_TARGETS
+  } catch {
+    return DEFAULT_NUTRITION_TARGETS
+  }
+}
+
+function buildRatioPath(points: DailyLoadPoint[], maxRatio: number) {
+  let path = ''
+
+  points.forEach((point, index) => {
+    if (point.ratio === null) {
+      return
+    }
+
+    const x = (index / Math.max(1, points.length - 1)) * 100
+    const y = 100 - (Math.min(point.ratio, maxRatio) / maxRatio) * 100
+
+    path += path ? ` L ${x} ${y}` : `M ${x} ${y}`
+  })
+
+  return path
+}
+
+function buildBarPath(points: DailyLoadPoint[], maxLoad: number) {
+  return points.map((point, index) => ({
+    x: (index / Math.max(1, points.length)) * 100 + 0.4,
+    width: 100 / Math.max(1, points.length) - 0.8,
+    height: (point.totalLoad / maxLoad) * 100,
+  }))
+}
+
+function buildRecoveryPath(points: RecoveryDailyPoint[]) {
+  let path = ''
+
+  points.forEach((point, index) => {
+    if (point.score === null) {
+      return
+    }
+
+    const x = (index / Math.max(1, points.length - 1)) * 100
+    const y = 100 - point.score
+
+    path += path ? ` L ${x} ${y}` : `M ${x} ${y}`
+  })
+
+  return path
+}
+
+function buildRecoverySleepBars(points: RecoveryDailyPoint[], maxHours: number) {
+  return points.map((point, index) => ({
+    x: (index / Math.max(1, points.length)) * 100 + 0.5,
+    width: 100 / Math.max(1, points.length) - 1,
+    height: ((point.sleepHours ?? 0) / maxHours) * 100,
+  }))
+}
+
+function buildHrvPath(points: RecoveryDailyPoint[], minHrv: number, maxHrv: number) {
+  let path = ''
+  const range = Math.max(1, maxHrv - minHrv)
+
+  points.forEach((point, index) => {
+    if (point.hrv === null) {
+      return
+    }
+
+    const x = (index / Math.max(1, points.length - 1)) * 100
+    const y = 100 - ((point.hrv - minHrv) / range) * 100
+
+    path += path ? ` L ${x} ${y}` : `M ${x} ${y}`
+  })
+
+  return path
+}
+
+function buildHrvDots(points: RecoveryDailyPoint[], minHrv: number, maxHrv: number) {
+  const range = Math.max(1, maxHrv - minHrv)
+
+  return points.flatMap((point, index) => {
+    if (point.hrv === null) {
+      return []
+    }
+
+    return [
+      {
+        date: point.date,
+        value: point.hrv,
+        x: (index / Math.max(1, points.length - 1)) * 100,
+        y: 100 - ((point.hrv - minHrv) / range) * 100,
+      },
+    ]
+  })
+}
+
+function buildNutritionScorePath(points: NutritionDailyPoint[]) {
+  let path = ''
+
+  points.forEach((point, index) => {
+    if (point.score === null) {
+      return
+    }
+
+    const x = (index / Math.max(1, points.length - 1)) * 100
+    const y = 100 - point.score
+
+    path += path ? ` L ${x} ${y}` : `M ${x} ${y}`
+  })
+
+  return path
+}
+
+function buildNutritionCalorieBars(
+  points: NutritionDailyPoint[],
+  maxCalories: number,
+) {
+  return points.map((point, index) => ({
+    x: (index / Math.max(1, points.length)) * 100 + 0.5,
+    width: 100 / Math.max(1, points.length) - 1,
+    height: (((point.calories ?? 0) / maxCalories) * 100),
+  }))
+}
+
+function getNutritionSummary(
+  score: number | null,
+  average: number | null,
+  band: NutritionBand,
+) {
+  if (score === null) {
+    return 'Add your first nutrition day to compare intake against daily targets.'
+  }
+
+  if (average === null) {
+    return `${band.label}. Build a few nutrition days to create a short-term trend.`
+  }
+
+  const delta = score - average
+
+  if (Math.abs(delta) <= 3) {
+    return 'Today is tracking almost exactly with your 7-day nutrition average.'
+  }
+
+  if (delta > 0) {
+    return `${band.label} because today is ${delta} points above your 7-day average.`
+  }
+
+  return `${band.label} because today is ${Math.abs(delta)} points below your 7-day average.`
+}
+
+function getRatioSummary(
+  ratio: number | null,
+  band: RatioBand,
+  baselineProgress: number,
+) {
+  if (ratio === null) {
+    return `${baselineProgress}/28 days collected. Keep logging sessions to build a four-week baseline.`
+  }
+
+  const delta = Math.round((ratio - 1) * 100)
+
+  if (Math.abs(delta) <= 4) {
+    return 'This week is almost identical to your rolling four-week average.'
+  }
+
+  if (delta > 0) {
+    return `${band.label} because this week is ${delta}% above your rolling average.`
+  }
+
+  return `${band.label} because this week is ${Math.abs(delta)}% below your rolling average.`
+}
+
+function getRecoverySummary(score: number | null, average: number | null, band: RecoveryBand) {
+  if (score === null) {
+    return 'Add your first morning check-in to start tracking recovery readiness.'
+  }
+
+  if (average === null) {
+    return `${band.label}. Build a few days of recovery data to create a short-term trend.`
+  }
+
+  const delta = score - average
+
+  if (Math.abs(delta) <= 3) {
+    return 'Today is tracking almost exactly with your 7-day recovery average.'
+  }
+
+  if (delta > 0) {
+    return `${band.label} because today is ${delta} points above your 7-day average.`
+  }
+
+  return `${band.label} because today is ${Math.abs(delta)} points below your 7-day average.`
+}
+
+function RatioDial({
+  ratio,
+  baselineReady,
+  baselineProgress,
+  band,
+}: {
+  ratio: number | null
+  baselineReady: boolean
+  baselineProgress: number
+  band: RatioBand
+}) {
+  const radius = 82
+  const circumference = 2 * Math.PI * radius
+  const displayValue = baselineReady && ratio !== null ? Math.min(ratio, 1.8) : 0
+  const progress = baselineReady
+    ? Math.max(0.08, displayValue / 1.8)
+    : Math.max(0.05, baselineProgress / 28)
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <div className="ratio-dial">
+      <svg viewBox="0 0 200 200" className="ratio-dial-graphic" aria-hidden="true">
+        <circle className="ratio-dial-track" cx="100" cy="100" r={radius} />
+        <circle
+          className="ratio-dial-progress"
+          cx="100"
+          cy="100"
+          r={radius}
+          stroke={band.color}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="ratio-dial-copy">
+        <span className="ratio-dial-value">
+          {baselineReady ? formatRatio(ratio) : `${baselineProgress}/28`}
+        </span>
+        <span className="ratio-dial-label">
+          {baselineReady ? 'A:C ratio' : 'baseline days'}
+        </span>
+        <strong className="ratio-dial-band" style={{ color: band.color }}>
+          {band.label}
+        </strong>
+      </div>
+    </div>
+  )
+}
+
+function RecoveryScoreDial({
+  score,
+  band,
+}: {
+  score: number | null
+  band: RecoveryBand
+}) {
+  const radius = 82
+  const circumference = 2 * Math.PI * radius
+  const progress = score === null ? 0.05 : Math.max(0.08, score / 100)
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <div className="ratio-dial">
+      <svg viewBox="0 0 200 200" className="ratio-dial-graphic" aria-hidden="true">
+        <circle className="ratio-dial-track" cx="100" cy="100" r={radius} />
+        <circle
+          className="ratio-dial-progress"
+          cx="100"
+          cy="100"
+          r={radius}
+          stroke={band.color}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="ratio-dial-copy">
+        <span className="ratio-dial-value">{formatRecoveryScore(score)}</span>
+        <span className="ratio-dial-label">recovery score</span>
+        <strong className="ratio-dial-band" style={{ color: band.color }}>
+          {band.label}
+        </strong>
+      </div>
+    </div>
+  )
+}
+
+function NutritionScoreDial({
+  score,
+  band,
+}: {
+  score: number | null
+  band: NutritionBand
+}) {
+  const radius = 82
+  const circumference = 2 * Math.PI * radius
+  const progress = score === null ? 0.05 : Math.max(0.08, score / 100)
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <div className="ratio-dial">
+      <svg viewBox="0 0 200 200" className="ratio-dial-graphic" aria-hidden="true">
+        <circle className="ratio-dial-track" cx="100" cy="100" r={radius} />
+        <circle
+          className="ratio-dial-progress"
+          cx="100"
+          cy="100"
+          r={radius}
+          stroke={band.color}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="ratio-dial-copy">
+        <span className="ratio-dial-value">{formatNutritionScore(score)}</span>
+        <span className="ratio-dial-label">nutrition score</span>
+        <strong className="ratio-dial-band" style={{ color: band.color }}>
+          {band.label}
+        </strong>
+      </div>
+    </div>
+  )
+}
+
+function RatioTrendChart({ points }: { points: DailyLoadPoint[] }) {
+  const maxRatio = Math.max(
+    1.6,
+    ...points.flatMap((point) => (point.ratio === null ? [] : [point.ratio])),
+  )
+  const cappedMaxRatio = Math.ceil(maxRatio * 10) / 10
+  const ratioPath = buildRatioPath(points, cappedMaxRatio)
+  const maxLoad = Math.max(1, ...points.map((point) => point.totalLoad))
+  const bars = buildBarPath(points, maxLoad)
+  const bandTop = 100 - (1.3 / cappedMaxRatio) * 100
+  const bandBottom = 100 - (0.8 / cappedMaxRatio) * 100
+  const labels = points.filter(
+    (_, index) => index % 7 === 0 || index === points.length - 1,
+  )
+
+  return (
+    <div className="trend-chart">
+      <svg
+        viewBox="0 0 100 100"
+        className="trend-chart-svg"
+        role="img"
+        aria-label="Acute to chronic workload ratio trend chart"
+      >
+        <rect
+          className="trend-chart-band"
+          x="0"
+          y={bandTop}
+          width="100"
+          height={bandBottom - bandTop}
+        />
+        {[0.5, 1, 1.5].map((mark) => (
+          <line
+            key={mark}
+            className="trend-chart-gridline"
+            x1="0"
+            y1={100 - (mark / cappedMaxRatio) * 100}
+            x2="100"
+            y2={100 - (mark / cappedMaxRatio) * 100}
+          />
+        ))}
+        {bars.map((bar) => (
+          <rect
+            key={bar.x}
+            className="trend-chart-bar"
+            x={bar.x}
+            y={100 - bar.height}
+            width={bar.width}
+            height={bar.height}
+            rx="0.6"
+          />
+        ))}
+        {ratioPath ? <path className="trend-chart-line" d={ratioPath} /> : null}
+      </svg>
+      <div className="trend-chart-axis">
+        {labels.map((point) => (
+          <span key={point.date}>{formatShortDate(point.date)}</span>
+        ))}
+      </div>
+      <div className="trend-legend">
+        <span>
+          <i className="legend-swatch legend-swatch-band" />
+          target zone (0.8-1.3)
+        </span>
+        <span>
+          <i className="legend-swatch legend-swatch-line" />
+          ratio trend
+        </span>
+        <span>
+          <i className="legend-swatch legend-swatch-bar" />
+          daily load
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function RecoveryTrendChart({
+  points,
+  hrvAverage,
+}: {
+  points: RecoveryDailyPoint[]
+  hrvAverage: number | null
+}) {
+  const scorePath = buildRecoveryPath(points)
+  const maxSleepHours = Math.max(
+    8,
+    ...points.flatMap((point) => (point.sleepHours === null ? [] : [point.sleepHours])),
+  )
+  const bars = buildRecoverySleepBars(points, maxSleepHours)
+  const hrvValues = points.flatMap((point) => (point.hrv === null ? [] : [point.hrv]))
+  const rawMinHrv = hrvValues.length ? Math.min(...hrvValues) : null
+  const rawMaxHrv = hrvValues.length ? Math.max(...hrvValues) : null
+  const hrvPadding =
+    rawMinHrv !== null && rawMaxHrv !== null
+      ? Math.max(4, Math.round((rawMaxHrv - rawMinHrv || 8) * 0.25))
+      : null
+  const minHrv =
+    rawMinHrv !== null && hrvPadding !== null
+      ? Math.max(0, rawMinHrv - hrvPadding)
+      : null
+  const maxHrv =
+    rawMaxHrv !== null && hrvPadding !== null ? rawMaxHrv + hrvPadding : null
+  const hrvPath =
+    minHrv !== null && maxHrv !== null
+      ? buildHrvPath(points, minHrv, maxHrv)
+      : ''
+  const hrvDots =
+    minHrv !== null && maxHrv !== null
+      ? buildHrvDots(points, minHrv, maxHrv)
+      : []
+  const hrvRange =
+    minHrv !== null && maxHrv !== null ? Math.max(1, maxHrv - minHrv) : null
+  const hrvAverageY =
+    hrvAverage !== null && minHrv !== null && hrvRange !== null
+      ? 100 - ((hrvAverage - minHrv) / hrvRange) * 100
+      : null
+  const labels = points.filter(
+    (_, index) => index % 3 === 0 || index === points.length - 1,
+  )
+
+  return (
+    <div className="trend-chart">
+      <svg
+        viewBox="0 0 100 100"
+        className="trend-chart-svg recovery-trend-svg"
+        role="img"
+        aria-label="Recovery score and HRV trend chart"
+      >
+        <rect className="recovery-trend-band" x="0" y="0" width="100" height="20" />
+        {bars.map((bar) => (
+          <rect
+            key={bar.x}
+            className="recovery-trend-bar"
+            x={bar.x}
+            y={100 - bar.height}
+            width={bar.width}
+            height={bar.height}
+            rx="0.6"
+          />
+        ))}
+        {hrvAverageY !== null ? (
+          <line
+            className="hrv-trend-baseline"
+            x1="0"
+            y1={hrvAverageY}
+            x2="100"
+            y2={hrvAverageY}
+          />
+        ) : null}
+        {scorePath ? (
+          <path className="recovery-trend-line" d={scorePath} />
+        ) : null}
+        {hrvPath ? <path className="hrv-trend-line" d={hrvPath} /> : null}
+        {hrvDots.map((dot) => (
+          <circle
+            key={dot.date}
+            className="hrv-trend-dot"
+            cx={dot.x}
+            cy={dot.y}
+            r="1.2"
+          />
+        ))}
+      </svg>
+      <div className="trend-chart-axis">
+        {labels.map((point) => (
+          <span key={point.date}>{formatShortDate(point.date)}</span>
+        ))}
+      </div>
+      <div className="trend-legend">
+        <span>
+          <i className="legend-swatch recovery-legend-band" />
+          ready zone (80+)
+        </span>
+        <span>
+          <i className="legend-swatch recovery-legend-line" />
+          score trend
+        </span>
+        <span>
+          <i className="legend-swatch recovery-legend-bar" />
+          sleep hours
+        </span>
+        {hrvValues.length ? (
+          <span>
+            <i className="legend-swatch hrv-legend-line" />
+            HRV overlay
+          </span>
+        ) : null}
+        {hrvAverageY !== null ? (
+          <span>
+            <i className="legend-swatch hrv-legend-baseline" />
+            HRV 7d average
+          </span>
+        ) : null}
+      </div>
+      {minHrv !== null && maxHrv !== null ? (
+        <p className="trend-footnote">
+          HRV overlay is normalized to the visible range of {formatHrv(minHrv)} to{' '}
+          {formatHrv(maxHrv)}.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function NutritionTrendChart({
+  points,
+  targets,
+}: {
+  points: NutritionDailyPoint[]
+  targets: NutritionTargets
+}) {
+  const scorePath = buildNutritionScorePath(points)
+  const maxCalories = Math.max(
+    targets.calories * 1.2,
+    ...points.flatMap((point) => (point.calories === null ? [] : [point.calories])),
+    1,
+  )
+  const bars = buildNutritionCalorieBars(points, maxCalories)
+  const targetY = 100 - (targets.calories / maxCalories) * 100
+  const labels = points.filter(
+    (_, index) => index % 3 === 0 || index === points.length - 1,
+  )
+
+  return (
+    <div className="trend-chart">
+      <svg
+        viewBox="0 0 100 100"
+        className="trend-chart-svg nutrition-trend-svg"
+        role="img"
+        aria-label="Nutrition score and calories trend chart"
+      >
+        {[25, 50, 75].map((mark) => (
+          <line
+            key={mark}
+            className="trend-chart-gridline"
+            x1="0"
+            y1={100 - mark}
+            x2="100"
+            y2={100 - mark}
+          />
+        ))}
+        <line
+          className="nutrition-target-line"
+          x1="0"
+          y1={targetY}
+          x2="100"
+          y2={targetY}
+        />
+        {bars.map((bar) => (
+          <rect
+            key={bar.x}
+            className="nutrition-trend-bar"
+            x={bar.x}
+            y={100 - bar.height}
+            width={bar.width}
+            height={bar.height}
+            rx="0.6"
+          />
+        ))}
+        {scorePath ? <path className="nutrition-trend-line" d={scorePath} /> : null}
+      </svg>
+      <div className="trend-chart-axis">
+        {labels.map((point) => (
+          <span key={point.date}>{formatShortDate(point.date)}</span>
+        ))}
+      </div>
+      <div className="trend-legend">
+        <span>
+          <i className="legend-swatch nutrition-legend-line" />
+          score trend
+        </span>
+        <span>
+          <i className="legend-swatch nutrition-legend-bar" />
+          calories
+        </span>
+        <span>
+          <i className="legend-swatch nutrition-legend-target" />
+          calorie target
+        </span>
+      </div>
+      <p className="trend-footnote">
+        Current calorie target line: {formatCalories(targets.calories)}.
+      </p>
+    </div>
+  )
+}
+
+function WorkloadStrip({ points }: { points: DailyLoadPoint[] }) {
+  const maxLoad = Math.max(1, ...points.map((point) => point.totalLoad))
+
+  return (
+    <div className="load-strip">
+      {points.map((point) => {
+        const style = {
+          '--load-height': `${(point.totalLoad / maxLoad) * 100}%`,
+        } as CSSProperties
+
+        return (
+          <article key={point.date} className="load-strip-day">
+            <span className="load-strip-date">{formatShortDate(point.date)}</span>
+            <div className="load-strip-bar" style={style}>
+              <span />
+            </div>
+            <strong>{formatLoad(point.totalLoad)}</strong>
+            <small>{point.sessionCount} sessions</small>
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function RecoveryMetricField({
+  config,
+  value,
+  onChange,
+}: {
+  config: RecoveryMetricConfig
+  value: string
+  onChange: (field: RecoveryMetricFieldKey, value: string) => void
+}) {
+  return (
+    <div className="recovery-metric-field">
+      <div className="recovery-metric-copy">
+        <div>
+          <strong>{config.label}</strong>
+          <p>{config.hint}</p>
+        </div>
+        <span className="recovery-metric-value">{value}/5</span>
+      </div>
+      <input
+        className="recovery-range"
+        type="range"
+        min="1"
+        max="5"
+        step="1"
+        value={value}
+        onChange={(event) => onChange(config.field, event.currentTarget.value)}
+      />
+      <div className="recovery-range-scale" aria-hidden="true">
+        <span>{config.low}</span>
+        <span>{config.high}</span>
+      </div>
+    </div>
+  )
+}
+
+function RecoveryBreakdown({ entry }: { entry: RecoveryEntry | undefined }) {
+  if (!entry) {
+    return (
+      <div className="empty-block">
+        <p>No recovery check-ins yet.</p>
+        <p>Once you log one, the latest readiness breakdown will appear here.</p>
+      </div>
+    )
+  }
+
+  const metrics = [
+    {
+      label: 'Sleep hours',
+      value: formatSleepHours(entry.sleepHours),
+      detail: 'time asleep',
+    },
+    {
+      label: 'HRV',
+      value: formatHrv(entry.hrv),
+      detail: 'optional device input',
+    },
+    {
+      label: 'Sleep quality',
+      value: `${entry.sleepQuality}/5`,
+      detail: 'restfulness',
+    },
+    {
+      label: 'Energy',
+      value: `${entry.energy}/5`,
+      detail: 'morning readiness',
+    },
+    {
+      label: 'Soreness',
+      value: `${entry.soreness}/5`,
+      detail: 'muscle fatigue',
+    },
+    {
+      label: 'Stress',
+      value: `${entry.stress}/5`,
+      detail: 'outside load',
+    },
+    {
+      label: 'Hydration',
+      value: `${entry.hydration}/5`,
+      detail: 'fluid status',
+    },
+  ]
+
+  return (
+    <div className="recovery-breakdown">
+      <div className="recovery-breakdown-grid">
+        {metrics.map((metric) => (
+          <article key={metric.label} className="recovery-breakdown-item">
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.detail}</small>
+          </article>
+        ))}
+      </div>
+      {entry.notes ? (
+        <p className="recovery-note">Latest note: {entry.notes}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function RecentSessionTable({
+  sessions,
+  onDelete,
+}: {
+  sessions: WorkloadSession[]
+  onDelete: (sessionId: string) => void
+}) {
+  if (!sessions.length) {
+    return (
+      <div className="empty-block">
+        <p>No sessions logged yet.</p>
+        <p>Your latest training sessions will appear here after the first entry.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="session-table-wrapper">
+      <table className="session-table">
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Date</th>
+            <th>Duration</th>
+            <th>RPE</th>
+            <th>Load</th>
+            <th aria-label="Delete session" />
+          </tr>
+        </thead>
+        <tbody>
+          {sessions.map((session) => (
+            <tr key={session.id}>
+              <td>
+                <div className="session-title">{session.title}</div>
+                {session.notes ? (
+                  <div className="session-notes">{session.notes}</div>
+                ) : null}
+              </td>
+              <td>{formatLongDate(session.date)}</td>
+              <td>{session.duration ? `${session.duration} min` : 'Custom'}</td>
+              <td>{session.rpe ?? 'Custom'}</td>
+              <td>{formatLoad(session.load)}</td>
+              <td>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDelete(session.id)}
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RecentRecoveryTable({
+  entries,
+  onDelete,
+}: {
+  entries: RecoveryEntry[]
+  onDelete: (entryId: string) => void
+}) {
+  if (!entries.length) {
+    return (
+      <div className="empty-block">
+        <p>No recovery check-ins yet.</p>
+        <p>The latest recovery log will appear here once you add your first entry.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="session-table-wrapper">
+      <table className="session-table">
+        <thead>
+          <tr>
+            <th>Check-in</th>
+            <th>Score</th>
+            <th>Sleep</th>
+            <th>HRV</th>
+            <th>Energy</th>
+            <th>Soreness</th>
+            <th>Stress</th>
+            <th aria-label="Delete check-in" />
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id}>
+              <td>
+                <div className="session-title">{formatLongDate(entry.date)}</div>
+                {entry.notes ? (
+                  <div className="session-notes">{entry.notes}</div>
+                ) : null}
+              </td>
+              <td>{formatRecoveryScore(entry.score)}</td>
+              <td>{formatSleepHours(entry.sleepHours)}</td>
+              <td>{formatHrv(entry.hrv)}</td>
+              <td>{entry.energy}/5</td>
+              <td>{entry.soreness}/5</td>
+              <td>{entry.stress}/5</td>
+              <td>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDelete(entry.id)}
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function NutritionTargetBreakdown({
+  entry,
+  targets,
+}: {
+  entry: NutritionEntry | undefined
+  targets: NutritionTargets
+}) {
+  if (!entry) {
+    return (
+      <div className="empty-block">
+        <p>No nutrition days logged yet.</p>
+        <p>Your latest intake versus target summary will appear here after the first entry.</p>
+      </div>
+    )
+  }
+
+  const metrics = [
+    {
+      label: 'Calories',
+      value: formatCalories(entry.calories),
+      detail: `target ${formatCalories(targets.calories)}`,
+    },
+    {
+      label: 'Protein',
+      value: formatGrams(entry.protein),
+      detail: `target ${formatGrams(targets.protein)}`,
+    },
+    {
+      label: 'Carbs',
+      value: formatGrams(entry.carbs),
+      detail: `target ${formatGrams(targets.carbs)}`,
+    },
+    {
+      label: 'Fat',
+      value: formatGrams(entry.fat),
+      detail: `target ${formatGrams(targets.fat)}`,
+    },
+    {
+      label: 'Hydration',
+      value: formatHydration(entry.hydration),
+      detail: `target ${formatHydration(targets.hydration)}`,
+    },
+  ]
+
+  return (
+    <div className="recovery-breakdown">
+      <div className="nutrition-breakdown-grid">
+        {metrics.map((metric) => (
+          <article key={metric.label} className="recovery-breakdown-item">
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.detail}</small>
+          </article>
+        ))}
+      </div>
+      {entry.notes ? (
+        <p className="recovery-note">Latest note: {entry.notes}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function RecentNutritionTable({
+  entries,
+  onDelete,
+}: {
+  entries: NutritionEntry[]
+  onDelete: (entryId: string) => void
+}) {
+  if (!entries.length) {
+    return (
+      <div className="empty-block">
+        <p>No nutrition days logged yet.</p>
+        <p>The latest nutrition log will appear here once you add your first day.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="session-table-wrapper">
+      <table className="session-table">
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Score</th>
+            <th>Calories</th>
+            <th>Protein</th>
+            <th>Carbs</th>
+            <th>Fat</th>
+            <th>Hydration</th>
+            <th aria-label="Delete day" />
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id}>
+              <td>
+                <div className="session-title">{formatLongDate(entry.date)}</div>
+                {entry.notes ? (
+                  <div className="session-notes">{entry.notes}</div>
+                ) : null}
+              </td>
+              <td>{formatNutritionScore(entry.score)}</td>
+              <td>{formatCalories(entry.calories)}</td>
+              <td>{formatGrams(entry.protein)}</td>
+              <td>{formatGrams(entry.carbs)}</td>
+              <td>{formatGrams(entry.fat)}</td>
+              <td>{formatHydration(entry.hydration)}</td>
+              <td>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDelete(entry.id)}
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function Sidebar({
+  activeSection,
+  onSelect,
+  currentSnapshot,
+  ratioBand,
+  weeklySessionCount,
+  latestRecoveryEntry,
+  recoveryAverage,
+  recoveryHrvAverage,
+  recoveryBand,
+  recoveryCheckIns,
+  latestNutritionEntry,
+  nutritionAverage,
+  nutritionBand,
+  nutritionLogCount,
+}: {
+  activeSection: AppSectionId
+  onSelect: (section: AppSectionId) => void
+  currentSnapshot: DailyLoadPoint | undefined
+  ratioBand: RatioBand
+  weeklySessionCount: number
+  latestRecoveryEntry: RecoveryEntry | undefined
+  recoveryAverage: number | null
+  recoveryHrvAverage: number | null
+  recoveryBand: RecoveryBand
+  recoveryCheckIns: number
+  latestNutritionEntry: NutritionEntry | undefined
+  nutritionAverage: number | null
+  nutritionBand: NutritionBand
+  nutritionLogCount: number
+}) {
+  const isRecovery = activeSection === 'recovery'
+  const isNutrition = activeSection === 'nutrition'
+
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-brand">
+        <p className="eyebrow">Fitness tracker</p>
+        <h2>Training OS</h2>
+        <p>
+          Start with workload management now and grow the rest of the platform
+          around it.
+        </p>
+      </div>
+
+      <nav className="sidebar-nav" aria-label="App sections">
+        {APP_SECTIONS.map((section) => {
+          const isActive = section.id === activeSection
+
+          return (
+            <button
+              key={section.id}
+              type="button"
+              className={`sidebar-nav-item${isActive ? ' is-active' : ''}`}
+              aria-current={isActive ? 'page' : undefined}
+              onClick={() => onSelect(section.id)}
+            >
+              <span className="sidebar-nav-row">
+                <strong>{section.label}</strong>
+                <span className="sidebar-badge">{section.badge}</span>
+              </span>
+              <span className="sidebar-nav-eyebrow">{section.eyebrow}</span>
+              <span className="sidebar-nav-summary">{section.summary}</span>
+            </button>
+          )
+        })}
+      </nav>
+
+      <div className="sidebar-status">
+        <p className="section-kicker">
+          {isRecovery
+            ? 'Current recovery'
+            : isNutrition
+              ? 'Current nutrition'
+              : 'Current dashboard'}
+        </p>
+        <div className="sidebar-status-grid">
+          {isRecovery ? (
+            <>
+              <div>
+                <span>Latest score</span>
+                <strong>{formatRecoveryScore(latestRecoveryEntry?.score ?? null)}</strong>
+              </div>
+              <div>
+                <span>7d average</span>
+                <strong>{formatRecoveryScore(recoveryAverage)}</strong>
+              </div>
+              <div>
+                <span>Latest HRV</span>
+                <strong>{formatHrv(latestRecoveryEntry?.hrv ?? null)}</strong>
+              </div>
+              <div>
+                <span>7d HRV</span>
+                <strong>{formatHrv(recoveryHrvAverage)}</strong>
+              </div>
+            </>
+          ) : isNutrition ? (
+            <>
+              <div>
+                <span>Latest score</span>
+                <strong>{formatNutritionScore(latestNutritionEntry?.score ?? null)}</strong>
+              </div>
+              <div>
+                <span>7d average</span>
+                <strong>{formatNutritionScore(nutritionAverage)}</strong>
+              </div>
+              <div>
+                <span>Calories</span>
+                <strong>{formatCalories(latestNutritionEntry?.calories ?? null)}</strong>
+              </div>
+              <div>
+                <span>Protein</span>
+                <strong>{formatGrams(latestNutritionEntry?.protein ?? null)}</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span>A:C ratio</span>
+                <strong>{formatRatio(currentSnapshot?.ratio ?? null)}</strong>
+              </div>
+              <div>
+                <span>Sessions</span>
+                <strong>{weeklySessionCount}</strong>
+              </div>
+            </>
+          )}
+        </div>
+        <p>
+          {isRecovery
+            ? recoveryBand.detail
+            : isNutrition
+              ? nutritionBand.detail
+              : ratioBand.detail}
+        </p>
+        {isRecovery ? (
+          <p>{recoveryCheckIns}/7 morning check-ins logged this week.</p>
+        ) : null}
+        {isNutrition ? (
+          <p>{nutritionLogCount}/7 nutrition days logged this week.</p>
+        ) : null}
+      </div>
+    </aside>
+  )
+}
+
+function DashboardWorkspace({
+  currentSnapshot,
+  baselineProgress,
+  ratioBand,
+  weeklySessionCount,
+  formState,
+  onInputChange,
+  onAddSession,
+  onLoadDemoData,
+  onClearAll,
+  sessions,
+  errorMessage,
+  sessionLoadPreview,
+  dailySeries,
+  weeklyPoints,
+  recentSessions,
+  onDeleteSession,
+}: {
+  currentSnapshot: DailyLoadPoint | undefined
+  baselineProgress: number
+  ratioBand: RatioBand
+  weeklySessionCount: number
+  formState: SessionFormState
+  onInputChange: (field: keyof SessionFormState, value: string) => void
+  onAddSession: (event: FormEvent<HTMLFormElement>) => void
+  onLoadDemoData: () => void
+  onClearAll: () => void
+  sessions: WorkloadSession[]
+  errorMessage: string
+  sessionLoadPreview: number | null
+  dailySeries: DailyLoadPoint[]
+  weeklyPoints: DailyLoadPoint[]
+  recentSessions: WorkloadSession[]
+  onDeleteSession: (sessionId: string) => void
+}) {
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Dashboard</p>
+        <h1>Track acute to chronic workload ratio from day one.</h1>
+        <p className="content-summary">
+          Log each training session, calculate load from session RPE, and
+          monitor how your current week compares with your rolling four-week
+          average.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">ACWR overview</p>
+            <h2>Current training load</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Acute load</span>
+              <strong>{formatLoad(currentSnapshot?.acuteLoad ?? 0)}</strong>
+              <small>last 7 days</small>
+            </div>
+            <div>
+              <span>Chronic load</span>
+              <strong>{formatLoad(currentSnapshot?.chronicLoad ?? null)}</strong>
+              <small>28-day average week</small>
+            </div>
+            <div>
+              <span>Sessions</span>
+              <strong>{weeklySessionCount}</strong>
+              <small>in the last week</small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <RatioDial
+            ratio={currentSnapshot?.ratio ?? null}
+            baselineReady={currentSnapshot?.baselineReady ?? false}
+            baselineProgress={baselineProgress}
+            band={ratioBand}
+          />
+          <p className="hero-focus-summary">
+            {getRatioSummary(
+              currentSnapshot?.ratio ?? null,
+              ratioBand,
+              baselineProgress,
+            )}
+          </p>
+          <p className="hero-focus-detail">{ratioBand.detail}</p>
+        </aside>
+      </section>
+
+      <main className="workspace">
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Training input</p>
+              <h2>Log a session</h2>
+            </div>
+            <p>
+              Session load defaults to <code>duration x RPE</code>, but you can
+              also enter a custom load.
+            </p>
+          </div>
+
+          <form className="entry-form" onSubmit={onAddSession}>
+            <label>
+              Session name
+              <input
+                type="text"
+                placeholder="Long run, strength, intervals..."
+                value={formState.title}
+                onChange={(event) =>
+                  onInputChange('title', event.currentTarget.value)
+                }
+              />
+            </label>
+
+            <div className="entry-grid">
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={formState.date}
+                  onChange={(event) =>
+                    onInputChange('date', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Duration (min)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={formState.duration}
+                  onChange={(event) =>
+                    onInputChange('duration', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Session RPE
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={formState.rpe}
+                  onChange={(event) =>
+                    onInputChange('rpe', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Custom load
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  placeholder="Optional"
+                  value={formState.loadOverride}
+                  onChange={(event) =>
+                    onInputChange('loadOverride', event.currentTarget.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <label>
+              Notes
+              <textarea
+                rows={3}
+                placeholder="Optional context: deload week, travel fatigue, race prep..."
+                value={formState.notes}
+                onChange={(event) =>
+                  onInputChange('notes', event.currentTarget.value)
+                }
+              />
+            </label>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Session load preview</span>
+                <strong>{formatLoad(sessionLoadPreview)}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Add session
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={onLoadDemoData}
+                >
+                  {sessions.length ? 'Replace with demo data' : 'Load demo data'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={onClearAll}
+                  disabled={!sessions.length}
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+
+            {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+          </form>
+        </section>
+
+        <section className="section-panel trend-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Trend</p>
+              <h2>Six-week workload view</h2>
+            </div>
+            <p>
+              Acute load is the last 7 days. Chronic load is the last 28 days
+              divided by four to create a weekly baseline.
+            </p>
+          </div>
+          <RatioTrendChart points={dailySeries.slice(-42)} />
+        </section>
+
+        <section className="section-panel load-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Last week</p>
+              <h2>Daily contribution</h2>
+            </div>
+            <p>See which days are driving the current acute load total.</p>
+          </div>
+          <WorkloadStrip points={weeklyPoints} />
+        </section>
+
+        <section className="section-panel sessions-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Training log</p>
+              <h2>Recent sessions</h2>
+            </div>
+            <p>Entries are saved in this browser so you can keep building the baseline.</p>
+          </div>
+          <RecentSessionTable
+            sessions={recentSessions}
+            onDelete={onDeleteSession}
+          />
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function RecoveryWorkspace({
+  latestRecoveryEntry,
+  recoveryAverage,
+  recoveryHrvAverage,
+  recoveryCheckIns,
+  recoveryBand,
+  recoveryFormState,
+  onInputChange,
+  onAddEntry,
+  onLoadDemoData,
+  onClearAll,
+  recoveryEntries,
+  errorMessage,
+  scorePreview,
+  recoverySeries,
+  recentRecoveryEntries,
+  onDeleteEntry,
+}: {
+  latestRecoveryEntry: RecoveryEntry | undefined
+  recoveryAverage: number | null
+  recoveryHrvAverage: number | null
+  recoveryCheckIns: number
+  recoveryBand: RecoveryBand
+  recoveryFormState: RecoveryFormState
+  onInputChange: (field: keyof RecoveryFormState, value: string) => void
+  onAddEntry: (event: FormEvent<HTMLFormElement>) => void
+  onLoadDemoData: () => void
+  onClearAll: () => void
+  recoveryEntries: RecoveryEntry[]
+  errorMessage: string
+  scorePreview: number | null
+  recoverySeries: RecoveryDailyPoint[]
+  recentRecoveryEntries: RecoveryEntry[]
+  onDeleteEntry: (entryId: string) => void
+}) {
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Recovery</p>
+        <h1>Capture how ready the body feels before training.</h1>
+        <p className="content-summary">
+          Log one short morning check-in, watch the recovery score trend, and
+          use it as context alongside workload instead of guessing how fresh you are.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Recovery overview</p>
+            <h2>Current readiness snapshot</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Latest score</span>
+              <strong>{formatRecoveryScore(latestRecoveryEntry?.score ?? null)}</strong>
+              <small>
+                {latestRecoveryEntry
+                  ? formatLongDate(latestRecoveryEntry.date)
+                  : 'no check-in yet'}
+              </small>
+            </div>
+            <div>
+              <span>7-day average</span>
+              <strong>{formatRecoveryScore(recoveryAverage)}</strong>
+              <small>rolling short-term baseline</small>
+            </div>
+            <div>
+              <span>Latest HRV</span>
+              <strong>{formatHrv(latestRecoveryEntry?.hrv ?? null)}</strong>
+              <small>
+                {recoveryHrvAverage === null
+                  ? 'optional device metric'
+                  : `${formatHrv(recoveryHrvAverage)} 7d average`}
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <RecoveryScoreDial
+            score={latestRecoveryEntry?.score ?? null}
+            band={recoveryBand}
+          />
+          <p className="hero-focus-summary">
+            {getRecoverySummary(
+              latestRecoveryEntry?.score ?? null,
+              recoveryAverage,
+              recoveryBand,
+            )}
+          </p>
+          <p className="hero-focus-detail">
+            {recoveryBand.detail} {recoveryCheckIns}/7 check-ins logged in the last week.
+          </p>
+        </aside>
+      </section>
+
+      <main className="workspace">
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Morning input</p>
+              <h2>Log a recovery check-in</h2>
+            </div>
+            <p>
+              This first version assumes one short daily check-in and rolls the
+              markers into a simple readiness score. HRV is tracked separately
+              so you can compare it against your own baseline.
+            </p>
+          </div>
+
+          <form className="entry-form" onSubmit={onAddEntry}>
+            <div className="entry-grid">
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={recoveryFormState.date}
+                  onChange={(event) =>
+                    onInputChange('date', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Sleep hours
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="14"
+                  step="0.1"
+                  value={recoveryFormState.sleepHours}
+                  onChange={(event) =>
+                    onInputChange('sleepHours', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                HRV (ms)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  placeholder="Optional"
+                  value={recoveryFormState.hrv}
+                  onChange={(event) =>
+                    onInputChange('hrv', event.currentTarget.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="recovery-metric-grid">
+              {RECOVERY_METRICS.map((metric) => (
+                <RecoveryMetricField
+                  key={metric.field}
+                  config={metric}
+                  value={recoveryFormState[metric.field]}
+                  onChange={onInputChange}
+                />
+              ))}
+            </div>
+
+            <label>
+              Notes
+              <textarea
+                rows={3}
+                placeholder="Optional context: bad travel sleep, race nerves, soreness from lifting..."
+                value={recoveryFormState.notes}
+                onChange={(event) =>
+                  onInputChange('notes', event.currentTarget.value)
+                }
+              />
+            </label>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Recovery score preview</span>
+                <strong>{formatRecoveryScore(scorePreview)}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Save check-in
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={onLoadDemoData}
+                >
+                  {recoveryEntries.length
+                    ? 'Replace with demo data'
+                    : 'Load demo data'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={onClearAll}
+                  disabled={!recoveryEntries.length}
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+
+            {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+          </form>
+        </section>
+
+        <section className="section-panel trend-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Trend</p>
+              <h2>Two-week recovery view</h2>
+            </div>
+            <p>
+              Score and normalized HRV share the same view, while the columns
+              still show sleep hours for quick pattern checks.
+            </p>
+          </div>
+          <RecoveryTrendChart
+            points={recoverySeries}
+            hrvAverage={recoveryHrvAverage}
+          />
+        </section>
+
+        <section className="section-panel load-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Latest check-in</p>
+              <h2>Signal breakdown</h2>
+            </div>
+            <p>Use the underlying markers to explain why the score moved.</p>
+          </div>
+          <RecoveryBreakdown entry={latestRecoveryEntry} />
+        </section>
+
+        <section className="section-panel sessions-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Recovery log</p>
+              <h2>Recent check-ins</h2>
+            </div>
+            <p>Saving a new entry for the same date replaces the older one.</p>
+          </div>
+          <RecentRecoveryTable
+            entries={recentRecoveryEntries}
+            onDelete={onDeleteEntry}
+          />
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function NutritionWorkspace({
+  latestNutritionEntry,
+  nutritionAverage,
+  nutritionAverageCalories,
+  nutritionLogCount,
+  nutritionBand,
+  nutritionTargets,
+  nutritionFormState,
+  nutritionTargetsFormState,
+  onNutritionInputChange,
+  onNutritionTargetsInputChange,
+  onAddEntry,
+  onSaveTargets,
+  onLoadDemoData,
+  onClearAll,
+  nutritionEntries,
+  errorMessage,
+  targetsErrorMessage,
+  scorePreview,
+  nutritionSeries,
+  recentNutritionEntries,
+  onDeleteEntry,
+}: {
+  latestNutritionEntry: NutritionEntry | undefined
+  nutritionAverage: number | null
+  nutritionAverageCalories: number | null
+  nutritionLogCount: number
+  nutritionBand: NutritionBand
+  nutritionTargets: NutritionTargets
+  nutritionFormState: NutritionFormState
+  nutritionTargetsFormState: NutritionTargetsFormState
+  onNutritionInputChange: (field: keyof NutritionFormState, value: string) => void
+  onNutritionTargetsInputChange: (
+    field: keyof NutritionTargetsFormState,
+    value: string,
+  ) => void
+  onAddEntry: (event: FormEvent<HTMLFormElement>) => void
+  onSaveTargets: (event: FormEvent<HTMLFormElement>) => void
+  onLoadDemoData: () => void
+  onClearAll: () => void
+  nutritionEntries: NutritionEntry[]
+  errorMessage: string
+  targetsErrorMessage: string
+  scorePreview: number | null
+  nutritionSeries: NutritionDailyPoint[]
+  recentNutritionEntries: NutritionEntry[]
+  onDeleteEntry: (entryId: string) => void
+}) {
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Nutrition</p>
+        <h1>Track daily intake against targets that support training.</h1>
+        <p className="content-summary">
+          Set simple daily targets, log the whole day once, and monitor how
+          calories, macros, and hydration are tracking over time.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Nutrition overview</p>
+            <h2>Current fueling snapshot</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Latest score</span>
+              <strong>{formatNutritionScore(latestNutritionEntry?.score ?? null)}</strong>
+              <small>
+                {latestNutritionEntry
+                  ? formatLongDate(latestNutritionEntry.date)
+                  : 'no nutrition day yet'}
+              </small>
+            </div>
+            <div>
+              <span>Calories</span>
+              <strong>{formatCalories(latestNutritionEntry?.calories ?? null)}</strong>
+              <small>target {formatCalories(nutritionTargets.calories)}</small>
+            </div>
+            <div>
+              <span>Protein</span>
+              <strong>{formatGrams(latestNutritionEntry?.protein ?? null)}</strong>
+              <small>target {formatGrams(nutritionTargets.protein)}</small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <NutritionScoreDial
+            score={latestNutritionEntry?.score ?? null}
+            band={nutritionBand}
+          />
+          <p className="hero-focus-summary">
+            {getNutritionSummary(
+              latestNutritionEntry?.score ?? null,
+              nutritionAverage,
+              nutritionBand,
+            )}
+          </p>
+          <p className="hero-focus-detail">
+            {nutritionBand.detail} {nutritionLogCount}/7 days logged, averaging{' '}
+            {formatCalories(nutritionAverageCalories)}.
+          </p>
+        </aside>
+      </section>
+
+      <main className="workspace">
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Daily input</p>
+              <h2>Log a nutrition day</h2>
+            </div>
+            <p>
+              This first version treats nutrition as one end-of-day entry so
+              you can quickly compare totals against your plan.
+            </p>
+          </div>
+
+          <form className="entry-form" onSubmit={onAddEntry}>
+            <div className="entry-grid">
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={nutritionFormState.date}
+                  onChange={(event) =>
+                    onNutritionInputChange('date', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Calories
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionFormState.calories}
+                  onChange={(event) =>
+                    onNutritionInputChange('calories', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Protein (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionFormState.protein}
+                  onChange={(event) =>
+                    onNutritionInputChange('protein', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Carbs (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionFormState.carbs}
+                  onChange={(event) =>
+                    onNutritionInputChange('carbs', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Fat (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionFormState.fat}
+                  onChange={(event) =>
+                    onNutritionInputChange('fat', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Hydration (L)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.1"
+                  value={nutritionFormState.hydration}
+                  onChange={(event) =>
+                    onNutritionInputChange('hydration', event.currentTarget.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <label>
+              Notes
+              <textarea
+                rows={3}
+                placeholder="Optional context: travel day, missed meal, race fueling, higher appetite..."
+                value={nutritionFormState.notes}
+                onChange={(event) =>
+                  onNutritionInputChange('notes', event.currentTarget.value)
+                }
+              />
+            </label>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Nutrition score preview</span>
+                <strong>{formatNutritionScore(scorePreview)}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Save day
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={onLoadDemoData}
+                >
+                  {nutritionEntries.length
+                    ? 'Replace with demo data'
+                    : 'Load demo data'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={onClearAll}
+                  disabled={!nutritionEntries.length}
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+
+            {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+          </form>
+        </section>
+
+        <section className="section-panel trend-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Trend</p>
+              <h2>Two-week nutrition view</h2>
+            </div>
+            <p>
+              Bars show calories, the line shows nutrition score, and the
+              baseline marks your current calorie target.
+            </p>
+          </div>
+          <NutritionTrendChart
+            points={nutritionSeries}
+            targets={nutritionTargets}
+          />
+        </section>
+
+        <section className="section-panel load-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Targets</p>
+              <h2>Daily target setup</h2>
+            </div>
+            <p>Update the default targets the daily nutrition score uses.</p>
+          </div>
+
+          <form className="entry-form" onSubmit={onSaveTargets}>
+            <div className="entry-grid">
+              <label>
+                Calories
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionTargetsFormState.calories}
+                  onChange={(event) =>
+                    onNutritionTargetsInputChange(
+                      'calories',
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Protein (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionTargetsFormState.protein}
+                  onChange={(event) =>
+                    onNutritionTargetsInputChange(
+                      'protein',
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Carbs (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionTargetsFormState.carbs}
+                  onChange={(event) =>
+                    onNutritionTargetsInputChange(
+                      'carbs',
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Fat (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="1"
+                  value={nutritionTargetsFormState.fat}
+                  onChange={(event) =>
+                    onNutritionTargetsInputChange(
+                      'fat',
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Hydration (L)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.1"
+                  value={nutritionTargetsFormState.hydration}
+                  onChange={(event) =>
+                    onNutritionTargetsInputChange(
+                      'hydration',
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Active calories target</span>
+                <strong>{formatCalories(nutritionTargets.calories)}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Save targets
+                </button>
+              </div>
+            </div>
+
+            {targetsErrorMessage ? (
+              <p className="form-error">{targetsErrorMessage}</p>
+            ) : null}
+          </form>
+
+          <NutritionTargetBreakdown
+            entry={latestNutritionEntry}
+            targets={nutritionTargets}
+          />
+        </section>
+
+        <section className="section-panel sessions-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Nutrition log</p>
+              <h2>Recent days</h2>
+            </div>
+            <p>Saving a new entry for the same date replaces the older one.</p>
+          </div>
+          <RecentNutritionTable
+            entries={recentNutritionEntries}
+            onDelete={onDeleteEntry}
+          />
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function PlaceholderWorkspace({ section }: { section: PlaceholderSectionId }) {
+  const content = PLACEHOLDER_CONTENT[section]
+
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">
+          {APP_SECTIONS.find((item) => item.id === section)?.eyebrow}
+        </p>
+        <h1>{content.title}</h1>
+        <p className="content-summary">{content.summary}</p>
+      </header>
+
+      <section className="placeholder-hero section-panel">
+        <div className="placeholder-copy">
+          <p className="section-kicker">Planned modules</p>
+          <h2>Reserved product space</h2>
+          <p>{content.note}</p>
+        </div>
+
+        <div className="placeholder-bullets">
+          {content.focusAreas.map((area) => (
+            <article key={area} className="placeholder-card">
+              <span className="placeholder-dot" aria-hidden="true" />
+              <strong>{area}</strong>
+              <p>Coming soon</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="placeholder-grid">
+        <article className="section-panel placeholder-panel">
+          <p className="section-kicker">Status</p>
+          <h2>UI placeholder is live</h2>
+          <p>
+            Navigation, routing, and space allocation are ready so we can plug
+            real features into this area next.
+          </p>
+        </article>
+
+        <article className="section-panel placeholder-panel">
+          <p className="section-kicker">Next build</p>
+          <h2>Best next step</h2>
+          <p>
+            Define the first data model and one actionable workflow for this
+            section before adding deeper visuals.
+          </p>
+        </article>
+      </section>
+    </div>
+  )
+}
+
+function App() {
+  const [sessions, setSessions] = useState<WorkloadSession[]>(() =>
+    loadStoredSessions(),
+  )
+  const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntry[]>(() =>
+    loadStoredRecoveryEntries(),
+  )
+  const [nutritionEntries, setNutritionEntries] = useState<NutritionEntry[]>(() =>
+    loadStoredNutritionEntries(),
+  )
+  const [nutritionTargets, setNutritionTargets] = useState<NutritionTargets>(() =>
+    loadStoredNutritionTargets(),
+  )
+  const [activeSection, setActiveSection] = useState<AppSectionId>('dashboard')
+  const [formState, setFormState] = useState<SessionFormState>(() =>
+    createEmptyFormState(),
+  )
+  const [recoveryFormState, setRecoveryFormState] = useState<RecoveryFormState>(() =>
+    createEmptyRecoveryFormState(),
+  )
+  const [nutritionFormState, setNutritionFormState] = useState<NutritionFormState>(() =>
+    createEmptyNutritionFormState(),
+  )
+  const [nutritionTargetsFormState, setNutritionTargetsFormState] =
+    useState<NutritionTargetsFormState>(() =>
+      createNutritionTargetsFormState(loadStoredNutritionTargets()),
+    )
+  const [errorMessage, setErrorMessage] = useState('')
+  const [recoveryErrorMessage, setRecoveryErrorMessage] = useState('')
+  const [nutritionErrorMessage, setNutritionErrorMessage] = useState('')
+  const [nutritionTargetsErrorMessage, setNutritionTargetsErrorMessage] =
+    useState('')
+
+  const deferredSessions = useDeferredValue(sessions)
+  const deferredRecoveryEntries = useDeferredValue(recoveryEntries)
+  const deferredNutritionEntries = useDeferredValue(nutritionEntries)
+  const dailySeries = buildDailyLoadSeries(deferredSessions)
+  const recoverySeries = buildRecoverySeries(deferredRecoveryEntries)
+  const nutritionSeries = buildNutritionSeries(deferredNutritionEntries)
+  const currentSnapshot = dailySeries.at(-1)
+  const baselineProgress = getBaselineProgress(sessions)
+  const ratioBand = getRatioBand(
+    currentSnapshot?.ratio ?? null,
+    currentSnapshot?.baselineReady ?? false,
+  )
+  const latestRecoveryEntry = recoveryEntries[0]
+  const recoveryAverage = getRecoveryAverage(recoveryEntries)
+  const recoveryHrvAverage = getRecoveryHrvAverage(recoveryEntries)
+  const recoveryCheckIns = getRecoveryCheckIns(recoveryEntries)
+  const recoveryBand = getRecoveryBand(latestRecoveryEntry?.score ?? null)
+  const latestNutritionEntry = nutritionEntries[0]
+  const nutritionAverage = getNutritionAverage(nutritionEntries)
+  const nutritionAverageCalories = getNutritionAverageCalories(nutritionEntries)
+  const nutritionLogCount = getNutritionLogCount(nutritionEntries)
+  const nutritionBand = getNutritionBand(latestNutritionEntry?.score ?? null)
+  const sessionLoadPreview =
+    parsePositiveNumber(formState.loadOverride) ??
+    createSessionLoad(
+      parsePositiveNumber(formState.duration),
+      parsePositiveNumber(formState.rpe),
+    )
+  const recoveryScorePreview = (() => {
+    const sleepHours = parsePositiveNumber(recoveryFormState.sleepHours)
+    const sleepQuality = parseScaleNumber(recoveryFormState.sleepQuality)
+    const energy = parseScaleNumber(recoveryFormState.energy)
+    const soreness = parseScaleNumber(recoveryFormState.soreness)
+    const stress = parseScaleNumber(recoveryFormState.stress)
+    const hydration = parseScaleNumber(recoveryFormState.hydration)
+
+    if (
+      sleepHours === null ||
+      sleepQuality === null ||
+      energy === null ||
+      soreness === null ||
+      stress === null ||
+      hydration === null
+    ) {
+      return null
+    }
+
+    return calculateRecoveryScore({
+      sleepHours,
+      sleepQuality,
+      energy,
+      soreness,
+      stress,
+      hydration,
+    })
+  })()
+  const nutritionScorePreview = (() => {
+    const calories = parsePositiveNumber(nutritionFormState.calories)
+    const protein = parsePositiveNumber(nutritionFormState.protein)
+    const carbs = parsePositiveNumber(nutritionFormState.carbs)
+    const fat = parsePositiveNumber(nutritionFormState.fat)
+    const hydration = parsePositiveNumber(nutritionFormState.hydration)
+
+    if (
+      calories === null ||
+      protein === null ||
+      carbs === null ||
+      fat === null ||
+      hydration === null
+    ) {
+      return null
+    }
+
+    return calculateNutritionScore(
+      { calories, protein, carbs, fat, hydration },
+      nutritionTargets,
+    )
+  })()
+  const recentSessions = sessions.slice(0, 8)
+  const recentRecoveryEntries = recoveryEntries.slice(0, 8)
+  const recentNutritionEntries = nutritionEntries.slice(0, 8)
+  const weeklyPoints = dailySeries.slice(-7).toReversed()
+  const weeklySessionCount = weeklyPoints.reduce(
+    (total, point) => total + point.sessionCount,
+    0,
+  )
+
+  useEffect(() => {
+    window.localStorage.setItem(WORKLOAD_STORAGE_KEY, JSON.stringify(sessions))
+  }, [sessions])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      RECOVERY_STORAGE_KEY,
+      JSON.stringify(recoveryEntries),
+    )
+  }, [recoveryEntries])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      NUTRITION_STORAGE_KEY,
+      JSON.stringify(nutritionEntries),
+    )
+  }, [nutritionEntries])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      NUTRITION_TARGETS_STORAGE_KEY,
+      JSON.stringify(nutritionTargets),
+    )
+  }, [nutritionTargets])
+
+  const handleInputChange = (field: keyof SessionFormState, value: string) => {
+    setFormState((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleRecoveryInputChange = (
+    field: keyof RecoveryFormState,
+    value: string,
+  ) => {
+    setRecoveryFormState((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleNutritionInputChange = (
+    field: keyof NutritionFormState,
+    value: string,
+  ) => {
+    setNutritionFormState((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleNutritionTargetsInputChange = (
+    field: keyof NutritionTargetsFormState,
+    value: string,
+  ) => {
+    setNutritionTargetsFormState((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleAddSession = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const customLoad = parsePositiveNumber(formState.loadOverride)
+    const duration = parsePositiveNumber(formState.duration)
+    const rpe = parsePositiveNumber(formState.rpe)
+    const computedLoad = customLoad ?? createSessionLoad(duration, rpe)
+
+    if (!formState.title.trim()) {
+      setErrorMessage('Add a session name so the training log stays readable.')
+      return
+    }
+
+    if (!formState.date) {
+      setErrorMessage('Pick a training date for the session.')
+      return
+    }
+
+    if (computedLoad === null) {
+      setErrorMessage('Enter duration and RPE, or provide a custom workload.')
+      return
+    }
+
+    const nextSession: WorkloadSession = {
+      id: createEntryId('session'),
+      title: formState.title.trim(),
+      date: formState.date,
+      duration: customLoad === null ? duration : null,
+      rpe: customLoad === null ? rpe : null,
+      load: computedLoad,
+      notes: formState.notes.trim(),
+      createdAt: new Date().toISOString(),
+    }
+
+    setSessions((current) => sortSessions([nextSession, ...current]))
+    setFormState(createEmptyFormState(formState.date))
+    setErrorMessage('')
+  }
+
+  const handleAddRecoveryEntry = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const sleepHours = parsePositiveNumber(recoveryFormState.sleepHours)
+    const hrv = parsePositiveNumber(recoveryFormState.hrv)
+    const sleepQuality = parseScaleNumber(recoveryFormState.sleepQuality)
+    const energy = parseScaleNumber(recoveryFormState.energy)
+    const soreness = parseScaleNumber(recoveryFormState.soreness)
+    const stress = parseScaleNumber(recoveryFormState.stress)
+    const hydration = parseScaleNumber(recoveryFormState.hydration)
+
+    if (!recoveryFormState.date) {
+      setRecoveryErrorMessage('Pick a date for the recovery check-in.')
+      return
+    }
+
+    if (
+      sleepHours === null ||
+      sleepQuality === null ||
+      energy === null ||
+      soreness === null ||
+      stress === null ||
+      hydration === null
+    ) {
+      setRecoveryErrorMessage('Complete all recovery markers before saving.')
+      return
+    }
+
+    const nextEntry: RecoveryEntry = {
+      id: createEntryId('recovery'),
+      date: recoveryFormState.date,
+      sleepHours,
+      hrv,
+      sleepQuality,
+      energy,
+      soreness,
+      stress,
+      hydration,
+      notes: recoveryFormState.notes.trim(),
+      score: calculateRecoveryScore({
+        sleepHours,
+        sleepQuality,
+        energy,
+        soreness,
+        stress,
+        hydration,
+      }),
+      createdAt: new Date().toISOString(),
+    }
+
+    setRecoveryEntries((current) =>
+      sortRecoveryEntries([
+        nextEntry,
+        ...current.filter((entry) => entry.date !== nextEntry.date),
+      ]),
+    )
+    setRecoveryFormState(createEmptyRecoveryFormState(recoveryFormState.date))
+    setRecoveryErrorMessage('')
+  }
+
+  const handleAddNutritionEntry = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const calories = parsePositiveNumber(nutritionFormState.calories)
+    const protein = parsePositiveNumber(nutritionFormState.protein)
+    const carbs = parsePositiveNumber(nutritionFormState.carbs)
+    const fat = parsePositiveNumber(nutritionFormState.fat)
+    const hydration = parsePositiveNumber(nutritionFormState.hydration)
+
+    if (!nutritionFormState.date) {
+      setNutritionErrorMessage('Pick a date for the nutrition day.')
+      return
+    }
+
+    if (
+      calories === null ||
+      protein === null ||
+      carbs === null ||
+      fat === null ||
+      hydration === null
+    ) {
+      setNutritionErrorMessage('Complete all nutrition totals before saving.')
+      return
+    }
+
+    const nextEntry: NutritionEntry = {
+      id: createEntryId('nutrition'),
+      date: nutritionFormState.date,
+      calories,
+      protein,
+      carbs,
+      fat,
+      hydration,
+      notes: nutritionFormState.notes.trim(),
+      score: calculateNutritionScore(
+        { calories, protein, carbs, fat, hydration },
+        nutritionTargets,
+      ),
+      createdAt: new Date().toISOString(),
+    }
+
+    setNutritionEntries((current) =>
+      sortNutritionEntries([
+        nextEntry,
+        ...current.filter((entry) => entry.date !== nextEntry.date),
+      ]),
+    )
+    setNutritionFormState(createEmptyNutritionFormState(nutritionFormState.date))
+    setNutritionErrorMessage('')
+  }
+
+  const handleSaveNutritionTargets = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const calories = parsePositiveNumber(nutritionTargetsFormState.calories)
+    const protein = parsePositiveNumber(nutritionTargetsFormState.protein)
+    const carbs = parsePositiveNumber(nutritionTargetsFormState.carbs)
+    const fat = parsePositiveNumber(nutritionTargetsFormState.fat)
+    const hydration = parsePositiveNumber(nutritionTargetsFormState.hydration)
+
+    if (
+      calories === null ||
+      protein === null ||
+      carbs === null ||
+      fat === null ||
+      hydration === null
+    ) {
+      setNutritionTargetsErrorMessage('Complete all target values before saving.')
+      return
+    }
+
+    const nextTargets: NutritionTargets = {
+      calories,
+      protein,
+      carbs,
+      fat,
+      hydration,
+    }
+
+    setNutritionTargets(nextTargets)
+    setNutritionEntries((current) =>
+      current.map((entry) => ({
+        ...entry,
+        score: calculateNutritionScore(
+          {
+            calories: entry.calories,
+            protein: entry.protein,
+            carbs: entry.carbs,
+            fat: entry.fat,
+            hydration: entry.hydration,
+          },
+          nextTargets,
+        ),
+      })),
+    )
+    setNutritionTargetsFormState(createNutritionTargetsFormState(nextTargets))
+    setNutritionTargetsErrorMessage('')
+  }
+
+  const handleLoadDemoData = () => {
+    if (
+      sessions.length &&
+      !window.confirm('Replace your saved sessions with demo data?')
+    ) {
+      return
+    }
+
+    setSessions(createDemoSessions())
+    setErrorMessage('')
+  }
+
+  const handleLoadRecoveryDemoData = () => {
+    if (
+      recoveryEntries.length &&
+      !window.confirm('Replace your saved recovery check-ins with demo data?')
+    ) {
+      return
+    }
+
+    setRecoveryEntries(createDemoRecoveryEntries())
+    setRecoveryErrorMessage('')
+  }
+
+  const handleLoadNutritionDemoData = () => {
+    if (
+      nutritionEntries.length &&
+      !window.confirm('Replace your saved nutrition days with demo data?')
+    ) {
+      return
+    }
+
+    setNutritionEntries(createDemoNutritionEntries(nutritionTargets))
+    setNutritionErrorMessage('')
+  }
+
+  const handleClearAll = () => {
+    if (!sessions.length) {
+      return
+    }
+
+    if (!window.confirm('Clear every saved workout from this browser?')) {
+      return
+    }
+
+    setSessions([])
+    setErrorMessage('')
+  }
+
+  const handleClearRecovery = () => {
+    if (!recoveryEntries.length) {
+      return
+    }
+
+    if (!window.confirm('Clear every saved recovery check-in from this browser?')) {
+      return
+    }
+
+    setRecoveryEntries([])
+    setRecoveryErrorMessage('')
+  }
+
+  const handleClearNutrition = () => {
+    if (!nutritionEntries.length) {
+      return
+    }
+
+    if (!window.confirm('Clear every saved nutrition day from this browser?')) {
+      return
+    }
+
+    setNutritionEntries([])
+    setNutritionErrorMessage('')
+  }
+
+  const handleDeleteSession = (sessionId: string) => {
+    setSessions((current) =>
+      current.filter((session) => session.id !== sessionId),
+    )
+  }
+
+  const handleDeleteRecoveryEntry = (entryId: string) => {
+    setRecoveryEntries((current) =>
+      current.filter((entry) => entry.id !== entryId),
+    )
+  }
+
+  const handleDeleteNutritionEntry = (entryId: string) => {
+    setNutritionEntries((current) =>
+      current.filter((entry) => entry.id !== entryId),
+    )
+  }
+
+  const handleSelectSection = (section: AppSectionId) => {
+    startTransition(() => {
+      setActiveSection(section)
+    })
+  }
+
+  return (
+    <div className="app-shell">
+      <Sidebar
+        activeSection={activeSection}
+        onSelect={handleSelectSection}
+        currentSnapshot={currentSnapshot}
+        ratioBand={ratioBand}
+        weeklySessionCount={weeklySessionCount}
+        latestRecoveryEntry={latestRecoveryEntry}
+        recoveryAverage={recoveryAverage}
+        recoveryHrvAverage={recoveryHrvAverage}
+        recoveryBand={recoveryBand}
+        recoveryCheckIns={recoveryCheckIns}
+        latestNutritionEntry={latestNutritionEntry}
+        nutritionAverage={nutritionAverage}
+        nutritionBand={nutritionBand}
+        nutritionLogCount={nutritionLogCount}
+      />
+
+      {activeSection === 'dashboard' ? (
+        <DashboardWorkspace
+          currentSnapshot={currentSnapshot}
+          baselineProgress={baselineProgress}
+          ratioBand={ratioBand}
+          weeklySessionCount={weeklySessionCount}
+          formState={formState}
+          onInputChange={handleInputChange}
+          onAddSession={handleAddSession}
+          onLoadDemoData={handleLoadDemoData}
+          onClearAll={handleClearAll}
+          sessions={sessions}
+          errorMessage={errorMessage}
+          sessionLoadPreview={sessionLoadPreview}
+          dailySeries={dailySeries}
+          weeklyPoints={weeklyPoints}
+          recentSessions={recentSessions}
+          onDeleteSession={handleDeleteSession}
+        />
+      ) : activeSection === 'recovery' ? (
+        <RecoveryWorkspace
+          latestRecoveryEntry={latestRecoveryEntry}
+          recoveryAverage={recoveryAverage}
+          recoveryHrvAverage={recoveryHrvAverage}
+          recoveryCheckIns={recoveryCheckIns}
+          recoveryBand={recoveryBand}
+          recoveryFormState={recoveryFormState}
+          onInputChange={handleRecoveryInputChange}
+          onAddEntry={handleAddRecoveryEntry}
+          onLoadDemoData={handleLoadRecoveryDemoData}
+          onClearAll={handleClearRecovery}
+          recoveryEntries={recoveryEntries}
+          errorMessage={recoveryErrorMessage}
+          scorePreview={recoveryScorePreview}
+          recoverySeries={recoverySeries}
+          recentRecoveryEntries={recentRecoveryEntries}
+          onDeleteEntry={handleDeleteRecoveryEntry}
+        />
+      ) : activeSection === 'nutrition' ? (
+        <NutritionWorkspace
+          latestNutritionEntry={latestNutritionEntry}
+          nutritionAverage={nutritionAverage}
+          nutritionAverageCalories={nutritionAverageCalories}
+          nutritionLogCount={nutritionLogCount}
+          nutritionBand={nutritionBand}
+          nutritionTargets={nutritionTargets}
+          nutritionFormState={nutritionFormState}
+          nutritionTargetsFormState={nutritionTargetsFormState}
+          onNutritionInputChange={handleNutritionInputChange}
+          onNutritionTargetsInputChange={handleNutritionTargetsInputChange}
+          onAddEntry={handleAddNutritionEntry}
+          onSaveTargets={handleSaveNutritionTargets}
+          onLoadDemoData={handleLoadNutritionDemoData}
+          onClearAll={handleClearNutrition}
+          nutritionEntries={nutritionEntries}
+          errorMessage={nutritionErrorMessage}
+          targetsErrorMessage={nutritionTargetsErrorMessage}
+          scorePreview={nutritionScorePreview}
+          nutritionSeries={nutritionSeries}
+          recentNutritionEntries={recentNutritionEntries}
+          onDeleteEntry={handleDeleteNutritionEntry}
+        />
+      ) : (
+        <PlaceholderWorkspace section={activeSection} />
+      )}
+    </div>
+  )
+}
+
+export default App
