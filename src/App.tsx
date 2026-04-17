@@ -1496,6 +1496,8 @@ function RecentNutritionTable({
 function Sidebar({
   activeSection,
   onSelect,
+  isOpen,
+  onClose,
   currentSnapshot,
   ratioBand,
   weeklySessionCount,
@@ -1511,6 +1513,8 @@ function Sidebar({
 }: {
   activeSection: AppSectionId
   onSelect: (section: AppSectionId) => void
+  isOpen: boolean
+  onClose: () => void
   currentSnapshot: DailyLoadPoint | undefined
   ratioBand: RatioBand
   weeklySessionCount: number
@@ -1528,14 +1532,28 @@ function Sidebar({
   const isNutrition = activeSection === 'nutrition'
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
-        <p className="eyebrow">Fitness tracker</p>
-        <h2>Training OS</h2>
-        <p>
-          Start with workload management now and grow the rest of the platform
-          around it.
-        </p>
+    <aside
+      id="app-sidebar"
+      className={`sidebar${isOpen ? ' is-open' : ''}`}
+      aria-hidden={!isOpen}
+    >
+      <div className="sidebar-header">
+        <div className="sidebar-brand">
+          <p className="eyebrow">Fitness tracker</p>
+          <h2>Training OS</h2>
+          <p>
+            Start with workload management now and grow the rest of the platform
+            around it.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="sidebar-close"
+          aria-label="Close menu"
+          onClick={onClose}
+        >
+          <span aria-hidden="true">×</span>
+        </button>
       </div>
 
       <nav className="sidebar-nav" aria-label="App sections">
@@ -1548,7 +1566,10 @@ function Sidebar({
               type="button"
               className={`sidebar-nav-item${isActive ? ' is-active' : ''}`}
               aria-current={isActive ? 'page' : undefined}
-              onClick={() => onSelect(section.id)}
+              onClick={() => {
+                onSelect(section.id)
+                onClose()
+              }}
             >
               <span className="sidebar-nav-row">
                 <strong>{section.label}</strong>
@@ -2645,6 +2666,7 @@ function App() {
   const [nutritionErrorMessage, setNutritionErrorMessage] = useState('')
   const [nutritionTargetsErrorMessage, setNutritionTargetsErrorMessage] =
     useState('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   const deferredSessions = useDeferredValue(sessions)
   const deferredRecoveryEntries = useDeferredValue(recoveryEntries)
@@ -2757,6 +2779,27 @@ function App() {
       JSON.stringify(nutritionTargets),
     )
   }, [nutritionTargets])
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      document.body.classList.remove('app-drawer-open')
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSidebarOpen(false)
+      }
+    }
+
+    document.body.classList.add('app-drawer-open')
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.classList.remove('app-drawer-open')
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isSidebarOpen])
 
   const handleInputChange = (field: keyof SessionFormState, value: string) => {
     setFormState((current) => ({
@@ -3087,16 +3130,44 @@ function App() {
   }
 
   const handleSelectSection = (section: AppSectionId) => {
+    setIsSidebarOpen(false)
     startTransition(() => {
       setActiveSection(section)
     })
   }
 
+  const activeSectionMeta =
+    APP_SECTIONS.find((section) => section.id === activeSection) ?? APP_SECTIONS[0]
+
   return (
     <div className="app-shell">
+      <button
+        type="button"
+        className={`app-menu-button${isSidebarOpen ? ' is-hidden' : ''}`}
+        aria-label="Open navigation menu"
+        aria-controls="app-sidebar"
+        aria-expanded={isSidebarOpen}
+        onClick={() => setIsSidebarOpen(true)}
+      >
+        <span className="app-menu-button-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span>{activeSectionMeta.label}</span>
+      </button>
+      <button
+        type="button"
+        className={`sidebar-backdrop${isSidebarOpen ? ' is-visible' : ''}`}
+        aria-label="Close navigation menu"
+        tabIndex={isSidebarOpen ? 0 : -1}
+        onClick={() => setIsSidebarOpen(false)}
+      />
       <Sidebar
         activeSection={activeSection}
         onSelect={handleSelectSection}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         currentSnapshot={currentSnapshot}
         ratioBand={ratioBand}
         weeklySessionCount={weeklySessionCount}
@@ -3111,71 +3182,73 @@ function App() {
         nutritionLogCount={nutritionLogCount}
       />
 
-      {activeSection === 'dashboard' ? (
-        <DashboardWorkspace
-          currentSnapshot={currentSnapshot}
-          baselineProgress={baselineProgress}
-          ratioBand={ratioBand}
-          weeklySessionCount={weeklySessionCount}
-          formState={formState}
-          onInputChange={handleInputChange}
-          onAddSession={handleAddSession}
-          onLoadDemoData={handleLoadDemoData}
-          onClearAll={handleClearAll}
-          sessions={sessions}
-          errorMessage={errorMessage}
-          sessionLoadPreview={sessionLoadPreview}
-          dailySeries={dailySeries}
-          weeklyPoints={weeklyPoints}
-          recentSessions={recentSessions}
-          onDeleteSession={handleDeleteSession}
-        />
-      ) : activeSection === 'recovery' ? (
-        <RecoveryWorkspace
-          latestRecoveryEntry={latestRecoveryEntry}
-          recoveryAverage={recoveryAverage}
-          recoveryHrvAverage={recoveryHrvAverage}
-          recoveryCheckIns={recoveryCheckIns}
-          recoveryBand={recoveryBand}
-          recoveryFormState={recoveryFormState}
-          onInputChange={handleRecoveryInputChange}
-          onAddEntry={handleAddRecoveryEntry}
-          onLoadDemoData={handleLoadRecoveryDemoData}
-          onClearAll={handleClearRecovery}
-          recoveryEntries={recoveryEntries}
-          errorMessage={recoveryErrorMessage}
-          scorePreview={recoveryScorePreview}
-          recoverySeries={recoverySeries}
-          recentRecoveryEntries={recentRecoveryEntries}
-          onDeleteEntry={handleDeleteRecoveryEntry}
-        />
-      ) : activeSection === 'nutrition' ? (
-        <NutritionWorkspace
-          latestNutritionEntry={latestNutritionEntry}
-          nutritionAverage={nutritionAverage}
-          nutritionAverageCalories={nutritionAverageCalories}
-          nutritionLogCount={nutritionLogCount}
-          nutritionBand={nutritionBand}
-          nutritionTargets={nutritionTargets}
-          nutritionFormState={nutritionFormState}
-          nutritionTargetsFormState={nutritionTargetsFormState}
-          onNutritionInputChange={handleNutritionInputChange}
-          onNutritionTargetsInputChange={handleNutritionTargetsInputChange}
-          onAddEntry={handleAddNutritionEntry}
-          onSaveTargets={handleSaveNutritionTargets}
-          onLoadDemoData={handleLoadNutritionDemoData}
-          onClearAll={handleClearNutrition}
-          nutritionEntries={nutritionEntries}
-          errorMessage={nutritionErrorMessage}
-          targetsErrorMessage={nutritionTargetsErrorMessage}
-          scorePreview={nutritionScorePreview}
-          nutritionSeries={nutritionSeries}
-          recentNutritionEntries={recentNutritionEntries}
-          onDeleteEntry={handleDeleteNutritionEntry}
-        />
-      ) : (
-        <PlaceholderWorkspace section={activeSection} />
-      )}
+      <div className="app-content">
+        {activeSection === 'dashboard' ? (
+          <DashboardWorkspace
+            currentSnapshot={currentSnapshot}
+            baselineProgress={baselineProgress}
+            ratioBand={ratioBand}
+            weeklySessionCount={weeklySessionCount}
+            formState={formState}
+            onInputChange={handleInputChange}
+            onAddSession={handleAddSession}
+            onLoadDemoData={handleLoadDemoData}
+            onClearAll={handleClearAll}
+            sessions={sessions}
+            errorMessage={errorMessage}
+            sessionLoadPreview={sessionLoadPreview}
+            dailySeries={dailySeries}
+            weeklyPoints={weeklyPoints}
+            recentSessions={recentSessions}
+            onDeleteSession={handleDeleteSession}
+          />
+        ) : activeSection === 'recovery' ? (
+          <RecoveryWorkspace
+            latestRecoveryEntry={latestRecoveryEntry}
+            recoveryAverage={recoveryAverage}
+            recoveryHrvAverage={recoveryHrvAverage}
+            recoveryCheckIns={recoveryCheckIns}
+            recoveryBand={recoveryBand}
+            recoveryFormState={recoveryFormState}
+            onInputChange={handleRecoveryInputChange}
+            onAddEntry={handleAddRecoveryEntry}
+            onLoadDemoData={handleLoadRecoveryDemoData}
+            onClearAll={handleClearRecovery}
+            recoveryEntries={recoveryEntries}
+            errorMessage={recoveryErrorMessage}
+            scorePreview={recoveryScorePreview}
+            recoverySeries={recoverySeries}
+            recentRecoveryEntries={recentRecoveryEntries}
+            onDeleteEntry={handleDeleteRecoveryEntry}
+          />
+        ) : activeSection === 'nutrition' ? (
+          <NutritionWorkspace
+            latestNutritionEntry={latestNutritionEntry}
+            nutritionAverage={nutritionAverage}
+            nutritionAverageCalories={nutritionAverageCalories}
+            nutritionLogCount={nutritionLogCount}
+            nutritionBand={nutritionBand}
+            nutritionTargets={nutritionTargets}
+            nutritionFormState={nutritionFormState}
+            nutritionTargetsFormState={nutritionTargetsFormState}
+            onNutritionInputChange={handleNutritionInputChange}
+            onNutritionTargetsInputChange={handleNutritionTargetsInputChange}
+            onAddEntry={handleAddNutritionEntry}
+            onSaveTargets={handleSaveNutritionTargets}
+            onLoadDemoData={handleLoadNutritionDemoData}
+            onClearAll={handleClearNutrition}
+            nutritionEntries={nutritionEntries}
+            errorMessage={nutritionErrorMessage}
+            targetsErrorMessage={nutritionTargetsErrorMessage}
+            scorePreview={nutritionScorePreview}
+            nutritionSeries={nutritionSeries}
+            recentNutritionEntries={recentNutritionEntries}
+            onDeleteEntry={handleDeleteNutritionEntry}
+          />
+        ) : (
+          <PlaceholderWorkspace section={activeSection} />
+        )}
+      </div>
     </div>
   )
 }
