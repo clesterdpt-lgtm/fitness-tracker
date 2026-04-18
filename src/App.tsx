@@ -36,6 +36,13 @@ import {
   type RecoveryEntry,
 } from './lib/recovery'
 import {
+  buildWorkoutGeneratorPlan,
+  type WorkoutGeneratorGoal,
+  type WorkoutGeneratorMode,
+  type WorkoutGeneratorPlan,
+  type WorkoutSuggestion,
+} from './lib/workoutGenerator'
+import {
   buildDailyLoadSeries,
   createDemoSessions,
   createSessionLoad,
@@ -96,16 +103,18 @@ type NutritionTargetsFormState = {
   hydration: string
 }
 
+type WorkoutGeneratorFormState = {
+  date: string
+  goal: WorkoutGeneratorGoal
+  mode: WorkoutGeneratorMode
+  availableMinutes: string
+}
+
 type AppSectionId =
   | 'dashboard'
   | 'recovery'
   | 'workout-generator'
   | 'nutrition'
-
-type PlaceholderSectionId = Exclude<
-  AppSectionId,
-  'dashboard' | 'recovery' | 'nutrition'
->
 
 type AppSection = {
   id: AppSectionId
@@ -156,9 +165,9 @@ const APP_SECTIONS: AppSection[] = [
   {
     id: 'workout-generator',
     label: 'Workout Generator',
-    eyebrow: 'Placeholder',
-    summary: 'Generate sessions from goals, time, and current load.',
-    badge: 'Soon',
+    eyebrow: 'Live workspace',
+    summary: "Generate today's session from goal, time, and readiness.",
+    badge: 'Live',
   },
   {
     id: 'nutrition',
@@ -168,27 +177,58 @@ const APP_SECTIONS: AppSection[] = [
     badge: 'Live',
   },
 ]
-const PLACEHOLDER_CONTENT: Record<
-  PlaceholderSectionId,
+const WORKOUT_GOAL_OPTIONS: Array<{
+  value: WorkoutGeneratorGoal
+  label: string
+  summary: string
+}> = [
   {
-    title: string
-    summary: string
-    focusAreas: string[]
-    note: string
-  }
-> = {
-  'workout-generator': {
-    title: 'Workout generator coming next',
-    summary:
-      'This area will turn your goal, available time, and current workload into suggested training sessions.',
-    focusAreas: [
-      'Generate sessions by sport or training goal',
-      'Adjust intensity from current ACWR and fatigue',
-      'Build short-term training blocks',
-    ],
-    note: 'Placeholder only for now so we can add generator logic in the next pass.',
+    value: 'endurance',
+    label: 'Endurance',
+    summary: 'Build aerobic work without overshooting the day.',
   },
-}
+  {
+    value: 'speed',
+    label: 'Speed',
+    summary: 'Use structured quality work when readiness supports it.',
+  },
+  {
+    value: 'strength',
+    label: 'Strength',
+    summary: 'Bias the session toward force production and support work.',
+  },
+  {
+    value: 'recovery',
+    label: 'Recovery',
+    summary: 'Use the day to absorb training and restore energy.',
+  },
+]
+const WORKOUT_MODE_OPTIONS: Array<{
+  value: WorkoutGeneratorMode
+  label: string
+  summary: string
+}> = [
+  {
+    value: 'run',
+    label: 'Run',
+    summary: 'Build the day around running.',
+  },
+  {
+    value: 'bike',
+    label: 'Bike',
+    summary: 'Use the bike as the main training tool.',
+  },
+  {
+    value: 'gym',
+    label: 'Gym',
+    summary: 'Train indoors with weights, circuits, or machines.',
+  },
+  {
+    value: 'mixed',
+    label: 'Mixed',
+    summary: 'Blend cardio, bodyweight, and strength support.',
+  },
+]
 const RECOVERY_METRICS: RecoveryMetricConfig[] = [
   {
     field: 'sleepQuality',
@@ -264,6 +304,17 @@ function createEmptyNutritionFormState(date = formatDateInput()): NutritionFormS
   }
 }
 
+function createEmptyWorkoutGeneratorFormState(
+  date = formatDateInput(),
+): WorkoutGeneratorFormState {
+  return {
+    date,
+    goal: 'endurance',
+    mode: 'run',
+    availableMinutes: '45',
+  }
+}
+
 function createNutritionTargetsFormState(
   targets: NutritionTargets = DEFAULT_NUTRITION_TARGETS,
 ): NutritionTargetsFormState {
@@ -328,8 +379,34 @@ function formatHydration(value: number | null) {
   return value === null ? '--' : `${hydrationFormatter.format(value)} L`
 }
 
+function formatMinutes(value: number | null) {
+  return value === null ? '--' : `${numberFormatter.format(value)} min`
+}
+
+function formatRpe(value: number | null) {
+  if (value === null) {
+    return '--'
+  }
+
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1)
+}
+
 function formatNutritionScore(value: number | null) {
   return value === null ? '--' : numberFormatter.format(value)
+}
+
+function getWorkoutGoalOption(goal: WorkoutGeneratorGoal) {
+  return (
+    WORKOUT_GOAL_OPTIONS.find((option) => option.value === goal) ??
+    WORKOUT_GOAL_OPTIONS[0]
+  )
+}
+
+function getWorkoutModeOption(mode: WorkoutGeneratorMode) {
+  return (
+    WORKOUT_MODE_OPTIONS.find((option) => option.value === mode) ??
+    WORKOUT_MODE_OPTIONS[0]
+  )
 }
 
 function createEntryId(prefix: string) {
@@ -1530,6 +1607,7 @@ function Sidebar({
 }) {
   const isRecovery = activeSection === 'recovery'
   const isNutrition = activeSection === 'nutrition'
+  const isWorkoutGenerator = activeSection === 'workout-generator'
 
   return (
     <aside
@@ -1552,7 +1630,7 @@ function Sidebar({
           aria-label="Close menu"
           onClick={onClose}
         >
-          <span aria-hidden="true">×</span>
+          <span aria-hidden="true">x</span>
         </button>
       </div>
 
@@ -1588,7 +1666,9 @@ function Sidebar({
             ? 'Current recovery'
             : isNutrition
               ? 'Current nutrition'
-              : 'Current dashboard'}
+              : isWorkoutGenerator
+                ? 'Generator context'
+                : 'Current dashboard'}
         </p>
         <div className="sidebar-status-grid">
           {isRecovery ? (
@@ -1629,6 +1709,27 @@ function Sidebar({
                 <strong>{formatGrams(latestNutritionEntry?.protein ?? null)}</strong>
               </div>
             </>
+          ) : isWorkoutGenerator ? (
+            <>
+              <div>
+                <span>A:C ratio</span>
+                <strong>{formatRatio(currentSnapshot?.ratio ?? null)}</strong>
+              </div>
+              <div>
+                <span>Recovery</span>
+                <strong>{formatRecoveryScore(latestRecoveryEntry?.score ?? null)}</strong>
+              </div>
+              <div>
+                <span>Nutrition</span>
+                <strong>
+                  {formatNutritionScore(latestNutritionEntry?.score ?? null)}
+                </strong>
+              </div>
+              <div>
+                <span>Sessions</span>
+                <strong>{weeklySessionCount}</strong>
+              </div>
+            </>
           ) : (
             <>
               <div>
@@ -1647,13 +1748,21 @@ function Sidebar({
             ? recoveryBand.detail
             : isNutrition
               ? nutritionBand.detail
-              : ratioBand.detail}
+              : isWorkoutGenerator
+                ? 'The generator uses current load, recovery, and fueling signals to scale the session.'
+                : ratioBand.detail}
         </p>
         {isRecovery ? (
           <p>{recoveryCheckIns}/7 morning check-ins logged this week.</p>
         ) : null}
         {isNutrition ? (
           <p>{nutritionLogCount}/7 nutrition days logged this week.</p>
+        ) : null}
+        {isWorkoutGenerator ? (
+          <p>
+            Open the generator to turn these signals into session options you can
+            save straight into the log.
+          </p>
         ) : null}
       </div>
     </aside>
@@ -2580,56 +2689,382 @@ function NutritionWorkspace({
   )
 }
 
-function PlaceholderWorkspace({ section }: { section: PlaceholderSectionId }) {
-  const content = PLACEHOLDER_CONTENT[section]
+function WorkoutReadinessDial({
+  readiness,
+}: {
+  readiness: WorkoutGeneratorPlan['readiness']
+}) {
+  const radius = 82
+  const circumference = 2 * Math.PI * radius
+  const progress = Math.max(0.08, readiness.score / 100)
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <div className="ratio-dial">
+      <svg viewBox="0 0 200 200" className="ratio-dial-graphic" aria-hidden="true">
+        <circle className="ratio-dial-track" cx="100" cy="100" r={radius} />
+        <circle
+          className="ratio-dial-progress"
+          cx="100"
+          cy="100"
+          r={radius}
+          stroke={readiness.color}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="ratio-dial-copy">
+        <span className="ratio-dial-value">{readiness.score}</span>
+        <span className="ratio-dial-label">readiness</span>
+        <strong className="ratio-dial-band" style={{ color: readiness.color }}>
+          {readiness.label}
+        </strong>
+      </div>
+    </div>
+  )
+}
+
+function WorkoutContextCard({
+  kicker,
+  value,
+  detail,
+  tone,
+}: {
+  kicker: string
+  value: string
+  detail: string
+  tone: string
+}) {
+  return (
+    <article
+      className="generator-context-card"
+      style={{ '--generator-accent': tone } as CSSProperties}
+    >
+      <p className="section-kicker">{kicker}</p>
+      <strong>{value}</strong>
+      <p>{detail}</p>
+    </article>
+  )
+}
+
+function WorkoutGeneratorWorkspace({
+  formState,
+  onInputChange,
+  plan,
+  currentSnapshot,
+  ratioBand,
+  latestRecoveryEntry,
+  recoveryBand,
+  latestNutritionEntry,
+  nutritionBand,
+  weeklySessionCount,
+  onUseSuggestion,
+  feedbackMessage,
+}: {
+  formState: WorkoutGeneratorFormState
+  onInputChange: (field: keyof WorkoutGeneratorFormState, value: string) => void
+  plan: WorkoutGeneratorPlan
+  currentSnapshot: DailyLoadPoint | undefined
+  ratioBand: RatioBand
+  latestRecoveryEntry: RecoveryEntry | undefined
+  recoveryBand: RecoveryBand
+  latestNutritionEntry: NutritionEntry | undefined
+  nutritionBand: NutritionBand
+  weeklySessionCount: number
+  onUseSuggestion: (suggestion: WorkoutSuggestion) => void
+  feedbackMessage: string
+}) {
+  const goalOption = getWorkoutGoalOption(formState.goal)
+  const modeOption = getWorkoutModeOption(formState.mode)
+  const preferredMinutes = parsePositiveNumber(formState.availableMinutes)
+  const recommendedSuggestion = plan.suggestions[0]
 
   return (
     <div className="content-shell">
       <header className="content-header">
-        <p className="eyebrow">
-          {APP_SECTIONS.find((item) => item.id === section)?.eyebrow}
+        <p className="eyebrow">Workout generator</p>
+        <h1>Build a session that matches today's readiness.</h1>
+        <p className="content-summary">
+          Pick the goal, format, and time you have today. The generator scales
+          the session from workload, recovery, and fueling so you can use it
+          immediately instead of guessing.
         </p>
-        <h1>{content.title}</h1>
-        <p className="content-summary">{content.summary}</p>
       </header>
 
-      <section className="placeholder-hero section-panel">
-        <div className="placeholder-copy">
-          <p className="section-kicker">Planned modules</p>
-          <h2>Reserved product space</h2>
-          <p>{content.note}</p>
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Session brief</p>
+            <h2>Prescription for {formatLongDate(formState.date)}</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Goal</span>
+              <strong>{goalOption.label}</strong>
+              <small>{goalOption.summary}</small>
+            </div>
+            <div>
+              <span>Format</span>
+              <strong>{modeOption.label}</strong>
+              <small>{modeOption.summary}</small>
+            </div>
+            <div>
+              <span>Available time</span>
+              <strong>{formatMinutes(preferredMinutes)}</strong>
+              <small>recommendation updates instantly</small>
+            </div>
+          </div>
         </div>
 
-        <div className="placeholder-bullets">
-          {content.focusAreas.map((area) => (
-            <article key={area} className="placeholder-card">
-              <span className="placeholder-dot" aria-hidden="true" />
-              <strong>{area}</strong>
-              <p>Coming soon</p>
-            </article>
-          ))}
-        </div>
+        <aside className="hero-focus">
+          <WorkoutReadinessDial readiness={plan.readiness} />
+          <p className="hero-focus-summary">{plan.headline}</p>
+          <p className="hero-focus-detail">{plan.detail}</p>
+        </aside>
       </section>
 
-      <section className="placeholder-grid">
-        <article className="section-panel placeholder-panel">
-          <p className="section-kicker">Status</p>
-          <h2>UI placeholder is live</h2>
-          <p>
-            Navigation, routing, and space allocation are ready so we can plug
-            real features into this area next.
-          </p>
-        </article>
+      <main className="workspace">
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Generator input</p>
+              <h2>Shape the session</h2>
+            </div>
+            <p>
+              This first version turns goal, training format, and time available
+              into session options you can save straight into the training log.
+            </p>
+          </div>
 
-        <article className="section-panel placeholder-panel">
-          <p className="section-kicker">Next build</p>
-          <h2>Best next step</h2>
-          <p>
-            Define the first data model and one actionable workflow for this
-            section before adding deeper visuals.
+          <form className="entry-form" onSubmit={(event) => event.preventDefault()}>
+            <div className="entry-grid">
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={formState.date}
+                  onChange={(event) =>
+                    onInputChange('date', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Goal
+                <select
+                  value={formState.goal}
+                  onChange={(event) =>
+                    onInputChange('goal', event.currentTarget.value)
+                  }
+                >
+                  {WORKOUT_GOAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Format
+                <select
+                  value={formState.mode}
+                  onChange={(event) =>
+                    onInputChange('mode', event.currentTarget.value)
+                  }
+                >
+                  {WORKOUT_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Available time (min)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="20"
+                  max="120"
+                  step="5"
+                  value={formState.availableMinutes}
+                  onChange={(event) =>
+                    onInputChange('availableMinutes', event.currentTarget.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <p className="generator-form-note">
+              The generator uses your current ACWR, latest recovery check-in,
+              and latest nutrition score to scale today's suggestion.
+            </p>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Recommended session load</span>
+                <strong>{formatLoad(recommendedSuggestion?.estimatedLoad ?? null)}</strong>
+              </div>
+              <p className="generator-inline-note">
+                If the warm-up feels worse than expected, switch to the lower-load
+                option instead of forcing the day.
+              </p>
+            </div>
+
+            {feedbackMessage ? <p className="form-success">{feedbackMessage}</p> : null}
+          </form>
+        </section>
+
+        <section className="section-panel trend-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Readiness signals</p>
+              <h2>What is driving the prescription</h2>
+            </div>
+            <p>
+              These signals shape the session intensity before any workout text is
+              generated.
+            </p>
+          </div>
+
+          <div className="generator-context-grid">
+            <WorkoutContextCard
+              kicker="Load"
+              value={`${formatRatio(currentSnapshot?.ratio ?? null)} | ${ratioBand.label}`}
+              detail={ratioBand.detail}
+              tone={ratioBand.color}
+            />
+            <WorkoutContextCard
+              kicker="Recovery"
+              value={`${formatRecoveryScore(latestRecoveryEntry?.score ?? null)} | ${recoveryBand.label}`}
+              detail={recoveryBand.detail}
+              tone={recoveryBand.color}
+            />
+            <WorkoutContextCard
+              kicker="Nutrition"
+              value={`${formatNutritionScore(latestNutritionEntry?.score ?? null)} | ${nutritionBand.label}`}
+              detail={nutritionBand.detail}
+              tone={nutritionBand.color}
+            />
+            <WorkoutContextCard
+              kicker="Readiness"
+              value={`${plan.readiness.score} | ${plan.readiness.label}`}
+              detail={plan.readiness.detail}
+              tone={plan.readiness.color}
+            />
+          </div>
+        </section>
+
+        <section className="section-panel load-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Coach notes</p>
+              <h2>How to use today's recommendation</h2>
+            </div>
+            <p>
+              The rules below explain why the generator is nudging the session up
+              or down today.
+            </p>
+          </div>
+
+          <div className="generator-adjustment-grid">
+            {plan.adjustments.map((adjustment) => (
+              <article key={adjustment} className="generator-adjustment-card">
+                <span className="generator-adjustment-dot" aria-hidden="true" />
+                <p>{adjustment}</p>
+              </article>
+            ))}
+          </div>
+
+          <p className="trend-footnote">
+            {weeklySessionCount} sessions have been logged over the last 7 days,
+            so the generator is treating this as part of the current weekly load
+            picture rather than a standalone day.
           </p>
-        </article>
-      </section>
+        </section>
+
+        <section className="section-panel sessions-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Session options</p>
+              <h2>Choose a session and log it</h2>
+            </div>
+            <p>
+              Every option includes duration, target RPE, estimated load, and a
+              one-click save into the training log.
+            </p>
+          </div>
+
+          <div className="generator-card-grid">
+            {plan.suggestions.map((suggestion) => (
+              <article
+                key={suggestion.id}
+                className={`generator-card${
+                  suggestion.id === 'recommended' ? ' is-featured' : ''
+                }`}
+              >
+                <div className="generator-card-header">
+                  <span className="generator-card-label">{suggestion.label}</span>
+                  <h3>{suggestion.title}</h3>
+                  <p>{suggestion.summary}</p>
+                </div>
+
+                <div className="generator-metric-grid">
+                  <div className="generator-metric">
+                    <span>Duration</span>
+                    <strong>{formatMinutes(suggestion.duration)}</strong>
+                  </div>
+                  <div className="generator-metric">
+                    <span>Target RPE</span>
+                    <strong>{formatRpe(suggestion.rpe)}</strong>
+                  </div>
+                  <div className="generator-metric">
+                    <span>Estimated load</span>
+                    <strong>{formatLoad(suggestion.estimatedLoad)}</strong>
+                  </div>
+                </div>
+
+                <div className="generator-block-list">
+                  {suggestion.blocks.map((block) => (
+                    <div key={block.label} className="generator-block">
+                      <strong>{block.label}</strong>
+                      <p>{block.detail}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="generator-card-notes">
+                  <p>
+                    <strong>Why this fits:</strong> {suggestion.rationale}
+                  </p>
+                  <p>
+                    <strong>Fueling:</strong> {suggestion.fueling}
+                  </p>
+                  <p>
+                    <strong>Caution:</strong> {suggestion.caution}
+                  </p>
+                </div>
+
+                <div className="entry-actions">
+                  <button
+                    type="button"
+                    className={
+                      suggestion.id === 'recommended'
+                        ? 'primary-button'
+                        : 'secondary-button'
+                    }
+                    onClick={() => onUseSuggestion(suggestion)}
+                  >
+                    Add to training log
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
     </div>
   )
 }
@@ -2657,6 +3092,8 @@ function App() {
   const [nutritionFormState, setNutritionFormState] = useState<NutritionFormState>(() =>
     createEmptyNutritionFormState(),
   )
+  const [workoutGeneratorFormState, setWorkoutGeneratorFormState] =
+    useState<WorkoutGeneratorFormState>(() => createEmptyWorkoutGeneratorFormState())
   const [nutritionTargetsFormState, setNutritionTargetsFormState] =
     useState<NutritionTargetsFormState>(() =>
       createNutritionTargetsFormState(loadStoredNutritionTargets()),
@@ -2664,6 +3101,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState('')
   const [recoveryErrorMessage, setRecoveryErrorMessage] = useState('')
   const [nutritionErrorMessage, setNutritionErrorMessage] = useState('')
+  const [workoutGeneratorMessage, setWorkoutGeneratorMessage] = useState('')
   const [nutritionTargetsErrorMessage, setNutritionTargetsErrorMessage] =
     useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -2754,6 +3192,18 @@ function App() {
     (total, point) => total + point.sessionCount,
     0,
   )
+  const workoutGeneratorAvailableMinutes =
+    parsePositiveNumber(workoutGeneratorFormState.availableMinutes) ?? 45
+  const workoutGeneratorPlan = buildWorkoutGeneratorPlan({
+    goal: workoutGeneratorFormState.goal,
+    mode: workoutGeneratorFormState.mode,
+    availableMinutes: workoutGeneratorAvailableMinutes,
+    ratio: currentSnapshot?.ratio ?? null,
+    baselineReady: currentSnapshot?.baselineReady ?? false,
+    recoveryScore: latestRecoveryEntry?.score ?? null,
+    nutritionScore: latestNutritionEntry?.score ?? null,
+    weeklySessionCount,
+  })
 
   useEffect(() => {
     window.localStorage.setItem(WORKLOAD_STORAGE_KEY, JSON.stringify(sessions))
@@ -2825,6 +3275,17 @@ function App() {
     setNutritionFormState((current) => ({
       ...current,
       [field]: value,
+    }))
+  }
+
+  const handleWorkoutGeneratorInputChange = (
+    field: keyof WorkoutGeneratorFormState,
+    value: string,
+  ) => {
+    setWorkoutGeneratorMessage('')
+    setWorkoutGeneratorFormState((current) => ({
+      ...current,
+      [field]: value as WorkoutGeneratorFormState[typeof field],
     }))
   }
 
@@ -3034,6 +3495,31 @@ function App() {
     )
     setNutritionTargetsFormState(createNutritionTargetsFormState(nextTargets))
     setNutritionTargetsErrorMessage('')
+  }
+
+  const handleUseGeneratedWorkout = (suggestion: WorkoutSuggestion) => {
+    const nextSession: WorkloadSession = {
+      id: createEntryId('session'),
+      title: suggestion.title,
+      date: workoutGeneratorFormState.date,
+      duration: suggestion.duration,
+      rpe: suggestion.rpe,
+      load: suggestion.estimatedLoad,
+      notes: [
+        `Generator: ${suggestion.label}.`,
+        ...suggestion.blocks.map((block) => `${block.label}: ${block.detail}`),
+        `Fueling: ${suggestion.fueling}`,
+        `Caution: ${suggestion.caution}`,
+      ].join(' '),
+      createdAt: new Date().toISOString(),
+    }
+
+    setSessions((current) => sortSessions([nextSession, ...current]))
+    setWorkoutGeneratorMessage(
+      `${suggestion.title} was added to the training log for ${formatLongDate(
+        workoutGeneratorFormState.date,
+      )}.`,
+    )
   }
 
   const handleLoadDemoData = () => {
@@ -3246,7 +3732,20 @@ function App() {
             onDeleteEntry={handleDeleteNutritionEntry}
           />
         ) : (
-          <PlaceholderWorkspace section={activeSection} />
+          <WorkoutGeneratorWorkspace
+            formState={workoutGeneratorFormState}
+            onInputChange={handleWorkoutGeneratorInputChange}
+            plan={workoutGeneratorPlan}
+            currentSnapshot={currentSnapshot}
+            ratioBand={ratioBand}
+            latestRecoveryEntry={latestRecoveryEntry}
+            recoveryBand={recoveryBand}
+            latestNutritionEntry={latestNutritionEntry}
+            nutritionBand={nutritionBand}
+            weeklySessionCount={weeklySessionCount}
+            onUseSuggestion={handleUseGeneratedWorkout}
+            feedbackMessage={workoutGeneratorMessage}
+          />
         )}
       </div>
     </div>
