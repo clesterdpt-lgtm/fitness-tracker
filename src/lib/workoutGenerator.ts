@@ -52,6 +52,7 @@ export type WorkoutExerciseSuggestion = {
   name: string
   prescription: string
   detail: string
+  timeboxMinutes?: number
 }
 
 export type WorkoutSuggestion = {
@@ -250,8 +251,9 @@ function createExercise(
   name: string,
   prescription: string,
   detail: string,
+  timeboxMinutes?: number,
 ): WorkoutExerciseSuggestion {
-  return { name, prescription, detail }
+  return { name, prescription, detail, timeboxMinutes }
 }
 
 type ExerciseIntent = 'warmup' | 'quality' | 'steady' | 'strength' | 'recovery'
@@ -573,6 +575,233 @@ function dedupeAdjacentExercises(exercises: WorkoutExerciseSuggestion[]) {
 
 function getExerciseMainMinutes(duration: number) {
   return Math.max(10, duration - 15)
+}
+
+type ExerciseTimeProfile = {
+  min: number
+  max: number
+  weight: number
+}
+
+function getExerciseTimeProfile(
+  exercise: WorkoutExerciseSuggestion,
+): ExerciseTimeProfile {
+  const movementFamily = getExerciseMovementFamily(exercise)
+  const intent = getExerciseIntent(exercise)
+
+  if (intent === 'warmup') {
+    return { min: 5, max: 12, weight: 1.4 }
+  }
+
+  if (movementFamily === 'row' || movementFamily === 'bike' || movementFamily === 'run' || movementFamily === 'walk' || movementFamily === 'jump-rope') {
+    if (intent === 'quality') {
+      return { min: 8, max: 25, weight: 3.2 }
+    }
+
+    return { min: 8, max: 35, weight: 3.6 }
+  }
+
+  if (movementFamily === 'mobility' || intent === 'recovery') {
+    return { min: 3, max: 8, weight: 1 }
+  }
+
+  if (movementFamily === 'drill' || movementFamily === 'power') {
+    return { min: 3, max: 8, weight: 1.1 }
+  }
+
+  if (
+    movementFamily === 'squat' ||
+    movementFamily === 'hinge' ||
+    movementFamily === 'push' ||
+    movementFamily === 'pull'
+  ) {
+    return { min: 3, max: 8, weight: 1.2 }
+  }
+
+  if (movementFamily === 'carry' || movementFamily === 'core') {
+    return { min: 2, max: 6, weight: 0.9 }
+  }
+
+  return { min: 3, max: 7, weight: 1 }
+}
+
+function distributeExerciseMinutes(
+  exercises: WorkoutExerciseSuggestion[],
+  duration: number,
+) {
+  const profiles = exercises.map((exercise) => getExerciseTimeProfile(exercise))
+  const totalWeight = profiles.reduce((sum, profile) => sum + profile.weight, 0)
+
+  const allocated = profiles.map((profile) =>
+    clamp(
+      Math.round((duration * profile.weight) / totalWeight),
+      profile.min,
+      profile.max,
+    ),
+  )
+
+  let allocatedTotal = allocated.reduce((sum, minutes) => sum + minutes, 0)
+
+  while (allocatedTotal < duration) {
+    const nextIndex = profiles.reduce((bestIndex, profile, index) => {
+      if (allocated[index] >= profile.max) {
+        return bestIndex
+      }
+
+      if (bestIndex === -1) {
+        return index
+      }
+
+      const currentSlack = profile.max - allocated[index]
+      const bestSlack = profiles[bestIndex].max - allocated[bestIndex]
+
+      return currentSlack > bestSlack ? index : bestIndex
+    }, -1)
+
+    if (nextIndex === -1) {
+      break
+    }
+
+    allocated[nextIndex] += 1
+    allocatedTotal += 1
+  }
+
+  while (allocatedTotal > duration) {
+    const nextIndex = profiles.reduce((bestIndex, profile, index) => {
+      if (allocated[index] <= profile.min) {
+        return bestIndex
+      }
+
+      if (bestIndex === -1) {
+        return index
+      }
+
+      const currentSlack = allocated[index] - profile.min
+      const bestSlack = allocated[bestIndex] - profiles[bestIndex].min
+
+      return currentSlack > bestSlack ? index : bestIndex
+    }, -1)
+
+    if (nextIndex === -1) {
+      break
+    }
+
+    allocated[nextIndex] -= 1
+    allocatedTotal -= 1
+  }
+
+  return allocated
+}
+
+function getPrescriptionRepPattern(prescription: string) {
+  const setPatternMatch = prescription.match(/^\d+(?:-\d+)?\s*x\s+(.+)$/i)
+
+  if (setPatternMatch) {
+    return { kind: 'sets' as const, value: setPatternMatch[1] }
+  }
+
+  const roundsMatch = prescription.match(/^\d+(?:-\d+)?\s+rounds?$/i)
+
+  if (roundsMatch) {
+    return { kind: 'rounds' as const }
+  }
+
+  return null
+}
+
+function formatTimedStrengthPrescription(
+  exercise: WorkoutExerciseSuggestion,
+  allocatedMinutes: number,
+) {
+  const pattern = getPrescriptionRepPattern(exercise.prescription)
+
+  if (pattern?.kind === 'sets') {
+    const setCount =
+      allocatedMinutes <= 3 ? '1-2' : allocatedMinutes <= 5 ? '2' : allocatedMinutes <= 7 ? '2-3' : '3'
+
+    return `${setCount} x ${pattern.value} (~${allocatedMinutes} min)`
+  }
+
+  if (pattern?.kind === 'rounds') {
+    const roundCount =
+      allocatedMinutes <= 3 ? '1' : allocatedMinutes <= 5 ? '2' : '2-3'
+
+    return `${roundCount} rounds (~${allocatedMinutes} min)`
+  }
+
+  return `${allocatedMinutes} min block`
+}
+
+function formatTimedMobilityPrescription(
+  exercise: WorkoutExerciseSuggestion,
+  allocatedMinutes: number,
+) {
+  const pattern = getPrescriptionRepPattern(exercise.prescription)
+
+  if (pattern?.kind === 'rounds') {
+    const roundCount =
+      allocatedMinutes <= 3 ? '1' : allocatedMinutes <= 5 ? '2' : '2-3'
+
+    return `${roundCount} rounds (~${allocatedMinutes} min)`
+  }
+
+  return `${allocatedMinutes} min flow`
+}
+
+function formatTimedQualityPrescription(
+  movementFamily: string | null,
+  allocatedMinutes: number,
+) {
+  const workSeconds =
+    allocatedMinutes <= 8 ? 45 : allocatedMinutes <= 12 ? 60 : 75
+  const easySeconds =
+    movementFamily === 'run' || movementFamily === 'row' ? 60 : 45
+  const rounds = Math.max(
+    4,
+    Math.round((allocatedMinutes * 60) / (workSeconds + easySeconds)),
+  )
+
+  return `${rounds} x ${workSeconds} sec work / ${easySeconds} sec easy (~${allocatedMinutes} min)`
+}
+
+function fitExercisesToDuration(
+  exercises: WorkoutExerciseSuggestion[],
+  duration: number,
+) {
+  const allocatedMinutes = distributeExerciseMinutes(exercises, duration)
+
+  return exercises.map((exercise, index) => {
+    const timeboxMinutes = allocatedMinutes[index]
+    const movementFamily = getExerciseMovementFamily(exercise)
+    const intent = getExerciseIntent(exercise)
+
+    let prescription = exercise.prescription
+
+    if (intent === 'warmup') {
+      prescription = `${timeboxMinutes} min`
+    } else if (
+      movementFamily === 'row' ||
+      movementFamily === 'bike' ||
+      movementFamily === 'run' ||
+      movementFamily === 'walk' ||
+      movementFamily === 'jump-rope'
+    ) {
+      prescription =
+        intent === 'quality'
+          ? formatTimedQualityPrescription(movementFamily, timeboxMinutes)
+          : `${timeboxMinutes} min`
+    } else if (movementFamily === 'mobility' || intent === 'recovery') {
+      prescription = formatTimedMobilityPrescription(exercise, timeboxMinutes)
+    } else {
+      prescription = formatTimedStrengthPrescription(exercise, timeboxMinutes)
+    }
+
+    return {
+      ...exercise,
+      prescription,
+      timeboxMinutes,
+    }
+  })
 }
 
 function buildRunExercises(
@@ -3961,7 +4190,10 @@ export function swapWorkoutSuggestionExercise(
 
   return {
     ...suggestion,
-    exercises: dedupeAdjacentExercises(nextExercises),
+    exercises: fitExercisesToDuration(
+      dedupeAdjacentExercises(nextExercises),
+      suggestion.duration,
+    ),
   }
 }
 
@@ -4014,8 +4246,11 @@ function createSuggestion(
   suggestion: Omit<WorkoutSuggestion, 'estimatedLoad' | 'exercises'>,
   readiness: WorkoutReadiness | null = null,
 ): WorkoutSuggestion {
-  const exercises = dedupeAdjacentExercises(
-    buildWorkoutExercises(input, suggestion.id, suggestion.duration, readiness),
+  const exercises = fitExercisesToDuration(
+    dedupeAdjacentExercises(
+      buildWorkoutExercises(input, suggestion.id, suggestion.duration, readiness),
+    ),
+    suggestion.duration,
   )
 
   return {
