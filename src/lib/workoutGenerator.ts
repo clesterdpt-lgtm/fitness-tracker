@@ -6,7 +6,20 @@ export type WorkoutGeneratorGoal =
   | 'strength'
   | 'recovery'
 
-export type WorkoutGeneratorMode = 'run' | 'bike' | 'gym' | 'mixed'
+export type WorkoutGeneratorMode = 'run' | 'bike' | 'gym' | 'mixed' | 'home'
+
+export type HomeEquipmentId =
+  | 'treadmill'
+  | 'exercise-bike'
+  | 'rower'
+  | 'jump-rope'
+  | 'dumbbells'
+  | 'bench'
+  | 'kettlebell'
+  | 'resistance-bands'
+  | 'pull-up-bar'
+  | 'medicine-ball'
+  | 'suspension-trainer'
 
 type WorkoutIntensityCap = 'low' | 'moderate' | 'high'
 
@@ -62,6 +75,7 @@ export type WorkoutGeneratorInput = {
   recoveryScore: number | null
   nutritionScore: number | null
   weeklySessionCount: number
+  homeEquipment: HomeEquipmentId[]
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -981,6 +995,568 @@ function buildMixedExercises(
   }
 }
 
+function hasHomeEquipment(
+  homeEquipment: HomeEquipmentId[],
+  equipmentId: HomeEquipmentId,
+) {
+  return homeEquipment.includes(equipmentId)
+}
+
+function getHomeCardioLabel(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    return 'treadmill'
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    return 'exercise bike'
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    return 'rower'
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    return 'jump rope'
+  }
+
+  return 'in-place cardio'
+}
+
+function getHomeStrengthSummary(homeEquipment: HomeEquipmentId[]) {
+  if (!homeEquipment.length) {
+    return 'bodyweight strength patterns and mobility work'
+  }
+
+  if (
+    hasHomeEquipment(homeEquipment, 'dumbbells') &&
+    hasHomeEquipment(homeEquipment, 'bench')
+  ) {
+    return 'dumbbells, a bench, and bodyweight support work'
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    return 'dumbbells and bodyweight support work'
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'kettlebell')) {
+    return 'kettlebell work and bodyweight support work'
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return 'resistance-band work and bodyweight support work'
+  }
+
+  return 'your available home tools with bodyweight support work'
+}
+
+function createHomeWarmupExercise(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    return createExercise(
+      'Treadmill walk-to-jog',
+      '5-8 min',
+      'Start easy, then let the stride open gradually before the main work.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    return createExercise(
+      'Stationary bike spin',
+      '5-8 min',
+      'Build cadence smoothly before any harder efforts start.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    return createExercise(
+      'Easy row',
+      '5-7 min',
+      'Use long strokes and stay relaxed through the upper body.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    return createExercise(
+      'Jump rope primer',
+      '5 x 45 sec easy / 15 sec reset',
+      'Land quietly and keep the shoulders soft as rhythm builds.',
+    )
+  }
+
+  return createExercise(
+    'March + mobility warm-up',
+    '5-8 min',
+    'Alternate brisk marching, arm swings, and ankle or hip mobility.',
+  )
+}
+
+function createHomeAerobicExercise(
+  duration: number,
+  homeEquipment: HomeEquipmentId[],
+  effort: 'easy' | 'steady',
+) {
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    return createExercise(
+      effort === 'easy' ? 'Easy treadmill walk or jog' : 'Steady treadmill block',
+      `${duration} min`,
+      effort === 'easy'
+        ? 'Keep the belt speed easy enough that breathing stays relaxed.'
+        : 'Hold a steady effort that stays controlled from first minute to last.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    return createExercise(
+      effort === 'easy' ? 'Easy bike spin' : 'Steady bike block',
+      `${duration} min`,
+      effort === 'easy'
+        ? 'Use a light gear and let the legs loosen up.'
+        : 'Stay seated, smooth, and rhythmical through the entire block.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    return createExercise(
+      effort === 'easy' ? 'Easy row' : 'Steady row block',
+      `${duration} min`,
+      effort === 'easy'
+        ? 'Keep the stroke pressure light and the breathing calm.'
+        : 'Use repeatable strokes and avoid yanking the handle to create speed.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    return createExercise(
+      effort === 'easy' ? 'Jump rope easy intervals' : 'Jump rope rhythm block',
+      effort === 'easy'
+        ? `${Math.max(8, Math.round(duration / 2))} x 45 sec easy / 30 sec reset`
+        : `${Math.max(6, Math.round(duration / 3))} x 90 sec smooth / 30 sec easy`,
+      'Stay light on the feet and pause anytime rhythm starts to break down.',
+    )
+  }
+
+  return createExercise(
+    effort === 'easy' ? 'In-place recovery cardio' : 'In-place conditioning block',
+    `${duration} min`,
+    effort === 'easy'
+      ? 'Rotate brisk marching, low step jacks, and easy shadow boxing.'
+      : 'Alternate fast feet, step-back lunges, and brisk marching every minute.',
+  )
+}
+
+function createHomeIntervalExercise(
+  goal: WorkoutGeneratorGoal,
+  duration: number,
+  readiness: WorkoutReadiness | null,
+  homeEquipment: HomeEquipmentId[],
+) {
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    return createExercise(
+      goal === 'strength' ? 'Incline treadmill intervals' : 'Treadmill intervals',
+      readiness?.cap === 'high'
+        ? '6 x 1 min strong / 90 sec easy'
+        : readiness?.cap === 'moderate'
+          ? '5 x 90 sec controlled hard / 90 sec easy'
+          : `${Math.max(10, duration)} min easy walk or jog`,
+      'Keep posture tall and let speed or incline rise only as much as control allows.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    return createExercise(
+      'Bike intervals',
+      readiness?.cap === 'high'
+        ? '6 x 75 sec strong / 90 sec easy'
+        : readiness?.cap === 'moderate'
+          ? '5 x 90 sec controlled hard / 90 sec easy'
+          : `${Math.max(10, duration)} min easy spin`,
+      'Keep the cadence lively but never frantic.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    return createExercise(
+      'Rower intervals',
+      readiness?.cap === 'high'
+        ? '6 x 250 m strong / 75 sec easy'
+        : readiness?.cap === 'moderate'
+          ? '5 x 2 min controlled hard / 90 sec easy'
+          : `${Math.max(10, duration)} min easy row`,
+      'Drive hard with the legs and recover fully on the slide back in.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    return createExercise(
+      'Jump rope speed rounds',
+      readiness?.cap === 'high'
+        ? '8 x 30 sec fast / 45 sec easy'
+        : readiness?.cap === 'moderate'
+          ? '6 x 45 sec quick / 45 sec easy'
+          : `${Math.max(8, Math.round(duration / 2))} x 30 sec easy / 30 sec reset`,
+      'Stay elastic and stop each round while the rhythm still feels snappy.',
+    )
+  }
+
+  return createExercise(
+    goal === 'speed' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
+    readiness?.cap === 'high'
+      ? '8 x 30 sec strong / 30 sec easy'
+      : readiness?.cap === 'moderate'
+        ? '6 x 45 sec controlled hard / 45 sec easy'
+        : `${Math.max(10, duration)} min easy movement`,
+    'Use quick feet, step-back lunges, and marching recoveries instead of chasing maximal output.',
+  )
+}
+
+function createHomeLowerStrengthExercise(homeEquipment: HomeEquipmentId[]) {
+  if (
+    hasHomeEquipment(homeEquipment, 'dumbbells') &&
+    hasHomeEquipment(homeEquipment, 'bench')
+  ) {
+    return createExercise(
+      'Bench step-up with dumbbells',
+      '3 x 8 each leg',
+      'Drive through the full foot and keep the torso tall.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    return createExercise(
+      'Dumbbell goblet squat',
+      '3-4 x 8',
+      'Use a load that lets every rep stay crisp and controlled.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'kettlebell')) {
+    return createExercise(
+      'Kettlebell goblet squat',
+      '3-4 x 8',
+      'Sit between the hips and keep the ribcage stacked over the pelvis.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return createExercise(
+      'Banded squat',
+      '3 x 10',
+      'Keep tension through the full range and stand fast with control.',
+    )
+  }
+
+  return createExercise(
+    'Rear-foot-elevated split squat',
+    '3 x 8 each leg',
+    'Use a chair or couch only if it feels stable; otherwise stay with regular split squats.',
+  )
+}
+
+function createHomeHingeExercise(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    return createExercise(
+      'Dumbbell Romanian deadlift',
+      '3 x 8-10',
+      'Keep the weights close and stop where the hamstrings feel loaded, not rounded.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'kettlebell')) {
+    return createExercise(
+      'Kettlebell deadlift or swing',
+      '3 x 10',
+      'Pick the deadlift on lower-readiness days and swings when pop feels good.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return createExercise(
+      'Banded good morning',
+      '3 x 12',
+      'Use the band to groove a strong hinge without rushing the tempo.',
+    )
+  }
+
+  return createExercise(
+    'Single-leg glute bridge',
+    '3 x 8 each side',
+    'Pause at the top and keep the ribs down so the hips do the work.',
+  )
+}
+
+function createHomePushExercise(homeEquipment: HomeEquipmentId[]) {
+  if (
+    hasHomeEquipment(homeEquipment, 'dumbbells') &&
+    hasHomeEquipment(homeEquipment, 'bench')
+  ) {
+    return createExercise(
+      'Dumbbell bench press',
+      '3 x 8',
+      'Keep the shoulder blades packed down into the bench and stop short of sloppy reps.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    return createExercise(
+      'Dumbbell floor press',
+      '3 x 8',
+      'Use the floor to keep the range clean and the shoulders stable.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'kettlebell')) {
+    return createExercise(
+      'Single-arm kettlebell floor press',
+      '3 x 6 each side',
+      'Drive the free hand into the floor so the trunk stays organized.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'suspension-trainer')) {
+    return createExercise(
+      'Suspension trainer push-up',
+      '3 x 8',
+      'Shorten the body angle until the set stays smooth all the way through.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return createExercise(
+      'Standing band press',
+      '3 x 10',
+      'Brace lightly through the trunk so the press does not turn into a back bend.',
+    )
+  }
+
+  return createExercise(
+    'Push-up',
+    '3 x 8',
+    'Elevate the hands if needed so every rep stays clean.',
+  )
+}
+
+function createHomePullExercise(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'pull-up-bar')) {
+    return createExercise(
+      'Pull-up or assisted pull-up',
+      '3 x 4-6',
+      'Use controlled reps and stop before grip or shoulder position falls apart.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'suspension-trainer')) {
+    return createExercise(
+      'Suspension row',
+      '3 x 8-10',
+      'Walk the feet forward only as far as you can hold a strong plank.',
+    )
+  }
+
+  if (
+    hasHomeEquipment(homeEquipment, 'dumbbells') &&
+    hasHomeEquipment(homeEquipment, 'bench')
+  ) {
+    return createExercise(
+      'Bench-supported one-arm row',
+      '3 x 8 each side',
+      'Drive the elbow toward the hip and keep the torso quiet.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    return createExercise(
+      'Bent-over dumbbell row',
+      '3 x 8',
+      'Set the hinge first, then row without shrugging the shoulders.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return createExercise(
+      'Band row',
+      '3 x 10-12',
+      'Pull the hands toward the ribs and control the return.',
+    )
+  }
+
+  return createExercise(
+    'Prone swimmer',
+    '2-3 x 8',
+    'Move slowly and think about the shoulder blades sliding cleanly.',
+  )
+}
+
+function createHomePowerExercise(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'medicine-ball')) {
+    return createExercise(
+      'Medicine-ball slam',
+      '4 x 6',
+      'Attack the floor with intent, then reset fully before the next rep.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'kettlebell')) {
+    return createExercise(
+      'Kettlebell swing',
+      '4 x 10',
+      'Snap the hips and let the bell float instead of muscling it upward.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    return createExercise(
+      'Dumbbell push press',
+      '4 x 5',
+      'Use the legs to start the rep and lock out with crisp timing.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    return createExercise(
+      'Fast-feet jump rope',
+      '6 x 20 sec fast / 40 sec easy',
+      'Stay quick and elastic without trying to max out the effort.',
+    )
+  }
+
+  return createExercise(
+    'Squat jump to stick',
+    '4 x 4',
+    'Land softly and own the position before taking the next jump.',
+  )
+}
+
+function createHomeCoreExercise(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return createExercise(
+      'Half-kneeling Pallof press',
+      '3 x 8 each side',
+      'Use the exhale to keep the ribs stacked while the band pulls sideways.',
+    )
+  }
+
+  if (
+    hasHomeEquipment(homeEquipment, 'dumbbells') ||
+    hasHomeEquipment(homeEquipment, 'kettlebell')
+  ) {
+    return createExercise(
+      'Suitcase march',
+      '3 x 20 steps each side',
+      'Walk tall and do not let the torso lean into the weight.',
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'suspension-trainer')) {
+    return createExercise(
+      'Suspension plank saw',
+      '3 x 20 sec',
+      'Keep the hips level and move only as far as you can stay braced.',
+    )
+  }
+
+  return createExercise(
+    'Dead bug',
+    '3 x 6 each side',
+    'Exhale fully to lock the ribs down before each leg lowers.',
+  )
+}
+
+function createHomeRecoverySupportExercise(homeEquipment: HomeEquipmentId[]) {
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    return createExercise(
+      'Banded glute bridge',
+      '2 x 10',
+      'Move slowly and use the band only to add a little activation, not fatigue.',
+    )
+  }
+
+  return createExercise(
+    'Glute bridge',
+    '2 x 10',
+    'Pause briefly at the top and keep the breathing relaxed.',
+  )
+}
+
+function createHomeMobilityExercise() {
+  return createExercise(
+    'Hip flexor + thoracic rotation flow',
+    '2 rounds',
+    'Move slowly through the hips and upper back before asking for more speed or load.',
+  )
+}
+
+function buildHomeExercises(
+  goal: WorkoutGeneratorGoal,
+  suggestionId: WorkoutSuggestion['id'],
+  duration: number,
+  readiness: WorkoutReadiness | null,
+  homeEquipment: HomeEquipmentId[],
+) {
+  const mainMinutes = getExerciseMainMinutes(duration)
+
+  if (suggestionId === 'lighter') {
+    return [
+      createHomeWarmupExercise(homeEquipment),
+      createHomeMobilityExercise(),
+      createHomeAerobicExercise(mainMinutes, homeEquipment, 'easy'),
+      createHomeCoreExercise(homeEquipment),
+    ]
+  }
+
+  if (suggestionId === 'support') {
+    if (goal === 'strength') {
+      return [
+        createHomeWarmupExercise(homeEquipment),
+        createHomeAerobicExercise(Math.max(15, duration - 15), homeEquipment, 'easy'),
+        createHomeMobilityExercise(),
+        createHomeCoreExercise(homeEquipment),
+      ]
+    }
+
+    return [
+      createHomeLowerStrengthExercise(homeEquipment),
+      createHomePushExercise(homeEquipment),
+      createHomePullExercise(homeEquipment),
+      createHomeCoreExercise(homeEquipment),
+    ]
+  }
+
+  switch (goal) {
+    case 'endurance':
+      return [
+        createHomeWarmupExercise(homeEquipment),
+        createHomeAerobicExercise(mainMinutes, homeEquipment, 'steady'),
+        createHomeLowerStrengthExercise(homeEquipment),
+        createHomeHingeExercise(homeEquipment),
+        createHomeCoreExercise(homeEquipment),
+      ]
+    case 'speed':
+      return [
+        createHomeWarmupExercise(homeEquipment),
+        createHomePowerExercise(homeEquipment),
+        createHomeIntervalExercise(goal, mainMinutes, readiness, homeEquipment),
+        createHomePushExercise(homeEquipment),
+        createHomeCoreExercise(homeEquipment),
+      ]
+    case 'strength':
+      return [
+        createHomeWarmupExercise(homeEquipment),
+        createHomeLowerStrengthExercise(homeEquipment),
+        createHomeHingeExercise(homeEquipment),
+        createHomePushExercise(homeEquipment),
+        createHomePullExercise(homeEquipment),
+        createHomeCoreExercise(homeEquipment),
+      ]
+    case 'recovery':
+      return [
+        createHomeWarmupExercise(homeEquipment),
+        createHomeAerobicExercise(mainMinutes, homeEquipment, 'easy'),
+        createHomeMobilityExercise(),
+        createHomeRecoverySupportExercise(homeEquipment),
+        createHomeCoreExercise(homeEquipment),
+      ]
+  }
+}
+
 function buildWorkoutExercises(
   input: WorkoutGeneratorInput,
   suggestionId: WorkoutSuggestion['id'],
@@ -996,6 +1572,14 @@ function buildWorkoutExercises(
       return buildGymExercises(input.goal, suggestionId, duration, readiness)
     case 'mixed':
       return buildMixedExercises(input.goal, suggestionId, duration, readiness)
+    case 'home':
+      return buildHomeExercises(
+        input.goal,
+        suggestionId,
+        duration,
+        readiness,
+        input.homeEquipment,
+      )
   }
 }
 
@@ -1184,6 +1768,47 @@ function buildEndurancePrimary(
           },
         ],
       }, readiness)
+
+    case 'home':
+      return createSuggestion(input, {
+        id: 'recommended',
+        label: 'Recommended',
+        title:
+          readiness.cap === 'low'
+            ? 'Home aerobic reset'
+            : 'Home endurance builder',
+        summary:
+          readiness.cap === 'high'
+            ? 'Steady home conditioning that uses your available equipment without needing a full gym session.'
+            : readiness.cap === 'moderate'
+              ? 'Controlled home endurance work that builds rhythm without overshooting the day.'
+              : 'A low-stress home session to keep momentum with simple aerobic work.',
+        duration,
+        rpe,
+        rationale:
+          'Home mode keeps the endurance goal specific to the tools you already have available.',
+        fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
+        caution: buildCautionNote(readiness),
+        blocks: [
+          {
+            label: 'Warm-up',
+            detail: `${warmup} min easy ${getHomeCardioLabel(input.homeEquipment)} plus mobility.`,
+          },
+          {
+            label: 'Main set',
+            detail:
+              readiness.cap === 'high'
+                ? `${main} min steady home conditioning using ${getHomeStrengthSummary(input.homeEquipment)}. Keep transitions short and breathing controlled.`
+                : readiness.cap === 'moderate'
+                  ? `${main} min controlled home circuit built around ${getHomeStrengthSummary(input.homeEquipment)}. Stay conversational, not competitive.`
+                  : `${main} min easy home conditioning using only light cardio and bodyweight support work.`,
+          },
+          {
+            label: 'Cool-down',
+            detail: `${cooldown} min easy downshift and full-body mobility.`,
+          },
+        ],
+      }, readiness)
   }
 }
 
@@ -1369,6 +1994,49 @@ function buildSpeedPrimary(
           },
         ],
       }, readiness)
+
+    case 'home':
+      return createSuggestion(input, {
+        id: 'recommended',
+        label: 'Recommended',
+        title:
+          readiness.cap === 'low'
+            ? 'Home speed primer'
+            : readiness.cap === 'moderate'
+              ? 'Controlled home interval session'
+              : 'Home power + interval session',
+        summary:
+          readiness.cap === 'low'
+            ? 'Keep the nervous system awake with short, clean speed touches at home.'
+            : readiness.cap === 'moderate'
+              ? 'Use home intervals and crisp power work without turning the day into a test.'
+              : 'A quality home session that blends power exercises with controlled intervals.',
+        duration,
+        rpe,
+        rationale:
+          'Home speed work stays productive when it uses the equipment already available instead of forcing a gym setup.',
+        fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
+        caution: buildCautionNote(readiness),
+        blocks: [
+          {
+            label: 'Warm-up',
+            detail: `${warmup} min easy ${getHomeCardioLabel(input.homeEquipment)} plus mobility and short buildups.`,
+          },
+          {
+            label: 'Main set',
+            detail:
+              readiness.cap === 'high'
+                ? `${main} min alternating short quality intervals on your ${getHomeCardioLabel(input.homeEquipment)} with explosive sets using ${getHomeStrengthSummary(input.homeEquipment)}.`
+                : readiness.cap === 'moderate'
+                  ? `${main} min controlled intervals and power sets with full resets before form gets sloppy.`
+                  : `${main} min easy movement with only brief speed touches and crisp coordination work.`,
+          },
+          {
+            label: 'Cool-down',
+            detail: `${cooldown} min easy breathing and mobility for ankles, hips, and shoulders.`,
+          },
+        ],
+      }, readiness)
   }
 }
 
@@ -1546,6 +2214,49 @@ function buildStrengthPrimary(
           },
         ],
       }, readiness)
+
+    case 'home':
+      return createSuggestion(input, {
+        id: 'recommended',
+        label: 'Recommended',
+        title:
+          readiness.cap === 'low'
+            ? 'Home movement-quality strength'
+            : readiness.cap === 'moderate'
+              ? 'Controlled home strength circuit'
+              : 'Home strength session',
+        summary:
+          readiness.cap === 'low'
+            ? 'Pattern the main home lifts and leave plenty in reserve.'
+            : readiness.cap === 'moderate'
+              ? 'Get useful home strength work in without letting reps turn grindy.'
+              : 'A full home strength session built around the equipment you have selected.',
+        duration,
+        rpe,
+        rationale:
+          'Home strength works best when the generator leans into your actual setup instead of generic gym assumptions.',
+        fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
+        caution: buildCautionNote(readiness),
+        blocks: [
+          {
+            label: 'Warm-up',
+            detail: `${warmup} min easy ${getHomeCardioLabel(input.homeEquipment)} and dynamic prep.`,
+          },
+          {
+            label: 'Main set',
+            detail:
+              readiness.cap === 'high'
+                ? `${main} min full-body home lifting using ${getHomeStrengthSummary(input.homeEquipment)}. Keep the sets technically clean and stop shy of failure.`
+                : readiness.cap === 'moderate'
+                  ? `${main} min controlled home strength work with 2-4 reps left in reserve on the harder sets.`
+                  : `${main} min technique-focused home session using lighter tools or bodyweight with slower tempos.`,
+          },
+          {
+            label: 'Cool-down',
+            detail: `${cooldown} min easy walking, breathing reset, and mobility.`,
+          },
+        ],
+      }, readiness)
   }
 }
 
@@ -1669,6 +2380,34 @@ function buildRecoveryPrimary(
           },
         ],
       }, readiness)
+
+    case 'home':
+      return createSuggestion(input, {
+        id: 'recommended',
+        label: 'Recommended',
+        title: 'Home recovery reset',
+        summary: 'A light home session that uses easy cardio, mobility, and trunk work to help you bounce back.',
+        duration,
+        rpe,
+        rationale:
+          'Recovery work should stay simple and doable, especially when you are training at home.',
+        fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
+        caution: 'Nothing in this session should feel like a performance test.',
+        blocks: [
+          {
+            label: 'Warm-up',
+            detail: `${warmup} min easy ${getHomeCardioLabel(input.homeEquipment)} and joint prep.`,
+          },
+          {
+            label: 'Main set',
+            detail: `${main} min easy home flow using gentle cardio, mobility, and trunk resets. If anything feels flat, make it even easier.`,
+          },
+          {
+            label: 'Cool-down',
+            detail: `${cooldown} min breathing reset and longer mobility.`,
+          },
+        ],
+      }, readiness)
   }
 }
 
@@ -1687,6 +2426,8 @@ function buildReducedLoadSuggestion(
         ? 'Mobility-led gym reset'
         : input.mode === 'bike'
           ? 'Easy spin swap'
+          : input.mode === 'home'
+            ? 'Home reset swap'
           : input.mode === 'run'
             ? 'Easy aerobic swap'
             : 'Low-stress mixed swap',
@@ -1708,6 +2449,8 @@ function buildReducedLoadSuggestion(
         detail:
           input.mode === 'gym'
             ? `${main} min light circuit: mobility, trunk stability, carries, and easy cyclical work.`
+            : input.mode === 'home'
+              ? `${main} min easy home circuit using the most restorative option you have, or bodyweight only if you need the simplest possible day.`
             : `${main} min easy conversational work with no structured hard segments.`,
       },
       {
@@ -1725,7 +2468,10 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
     return createSuggestion(input, {
       id: 'support',
       label: 'Support session',
-      title: 'Easy aerobic support',
+      title:
+        input.mode === 'home'
+          ? 'Easy home aerobic support'
+          : 'Easy aerobic support',
       summary: 'A short aerobic session to support recovery, work capacity, and consistency around strength training.',
       duration,
       rpe: 4,
@@ -1736,11 +2482,17 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
       blocks: [
         {
           label: 'Start',
-          detail: '5-10 min easy warm-up on a modality you enjoy.',
+          detail:
+            input.mode === 'home'
+              ? `5-10 min easy warm-up on your ${getHomeCardioLabel(input.homeEquipment)} or with brisk in-place movement.`
+              : '5-10 min easy warm-up on a modality you enjoy.',
         },
         {
           label: 'Main work',
-          detail: `${Math.max(15, duration - 10)} min easy aerobic work at a pace that feels repeatable any day of the week.`,
+          detail:
+            input.mode === 'home'
+              ? `${Math.max(15, duration - 10)} min easy home aerobic work that feels repeatable any day of the week.`
+              : `${Math.max(15, duration - 10)} min easy aerobic work at a pace that feels repeatable any day of the week.`,
         },
         {
           label: 'Finish',
@@ -1753,7 +2505,10 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
   return createSuggestion(input, {
     id: 'support',
     label: 'Support session',
-    title: 'Strength and trunk support',
+    title:
+      input.mode === 'home'
+        ? 'Home strength and trunk support'
+        : 'Strength and trunk support',
     summary: 'A short strength-support block to complement the main endurance or speed goal.',
     duration,
     rpe: 5,
@@ -1768,7 +2523,10 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
       },
       {
         label: 'Main work',
-        detail: `${Math.max(20, duration - 10)} min of split squat, hinge, row, push, and anti-rotation trunk work for controlled sets.`,
+        detail:
+          input.mode === 'home'
+            ? `${Math.max(20, duration - 10)} min of home strength work using split squat, hinge, row, push, and trunk patterns that fit your available equipment.`
+            : `${Math.max(20, duration - 10)} min of split squat, hinge, row, push, and anti-rotation trunk work for controlled sets.`,
       },
       {
         label: 'Finish',
@@ -1857,6 +2615,14 @@ function buildAdjustments(
   } else {
     adjustments.push(
       'If you finish feeling like you could do a little more, that is a sign the session landed where it should.',
+    )
+  }
+
+  if (input.mode === 'home') {
+    adjustments.push(
+      input.homeEquipment.length
+        ? `Home mode is using ${getHomeStrengthSummary(input.homeEquipment)} and ${getHomeCardioLabel(input.homeEquipment)} work to shape the exercise menu.`
+        : 'No home equipment is selected, so the generator is defaulting to bodyweight, mobility, and in-place conditioning choices.',
     )
   }
 

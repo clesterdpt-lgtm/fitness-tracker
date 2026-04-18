@@ -37,6 +37,7 @@ import {
 } from './lib/recovery'
 import {
   buildWorkoutGeneratorPlan,
+  type HomeEquipmentId,
   type WorkoutGeneratorGoal,
   type WorkoutGeneratorMode,
   type WorkoutGeneratorPlan,
@@ -116,6 +117,7 @@ type AppSectionId =
   | 'recovery'
   | 'workout-generator'
   | 'nutrition'
+  | 'settings'
 
 type AppSection = {
   id: AppSectionId
@@ -137,6 +139,7 @@ const WORKLOAD_STORAGE_KEY = 'fitness-tracker.acwr.v1'
 const RECOVERY_STORAGE_KEY = 'fitness-tracker.recovery.v1'
 const NUTRITION_STORAGE_KEY = 'fitness-tracker.nutrition.v1'
 const NUTRITION_TARGETS_STORAGE_KEY = 'fitness-tracker.nutrition-targets.v1'
+const HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.home-equipment.v1'
 const numberFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 })
@@ -182,6 +185,13 @@ const APP_SECTIONS: AppSection[] = [
     label: 'Nutrition',
     eyebrow: 'Live workspace',
     summary: 'Daily targets, intake logging, and nutrition trend summaries.',
+    badge: 'Live',
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    eyebrow: 'Live workspace',
+    summary: 'Set up the equipment available for home workouts and generator preferences.',
     badge: 'Live',
   },
 ]
@@ -235,6 +245,84 @@ const WORKOUT_MODE_OPTIONS: Array<{
     value: 'mixed',
     label: 'Mixed',
     summary: 'Blend cardio, bodyweight, and strength support.',
+  },
+  {
+    value: 'home',
+    label: 'Home',
+    summary: 'Build a home session from your available equipment.',
+  },
+]
+const HOME_EQUIPMENT_OPTIONS: Array<{
+  value: HomeEquipmentId
+  label: string
+  summary: string
+  category: 'Cardio' | 'Strength' | 'Support'
+}> = [
+  {
+    value: 'treadmill',
+    label: 'Treadmill',
+    summary: 'Walk, run, incline work, and easy aerobic flush sessions.',
+    category: 'Cardio',
+  },
+  {
+    value: 'exercise-bike',
+    label: 'Exercise bike',
+    summary: 'Low-impact aerobic work and controlled intervals.',
+    category: 'Cardio',
+  },
+  {
+    value: 'rower',
+    label: 'Rower',
+    summary: 'Short powerful intervals or steady conditioning blocks.',
+    category: 'Cardio',
+  },
+  {
+    value: 'jump-rope',
+    label: 'Jump rope',
+    summary: 'Compact cardio and rhythm work for small spaces.',
+    category: 'Cardio',
+  },
+  {
+    value: 'dumbbells',
+    label: 'Dumbbells',
+    summary: 'Primary option for loaded lower, upper, and trunk strength work.',
+    category: 'Strength',
+  },
+  {
+    value: 'bench',
+    label: 'Bench',
+    summary: 'Useful for presses, rows, split squats, and step-ups.',
+    category: 'Strength',
+  },
+  {
+    value: 'kettlebell',
+    label: 'Kettlebell',
+    summary: 'Great for swings, squats, carries, and conditioning circuits.',
+    category: 'Strength',
+  },
+  {
+    value: 'resistance-bands',
+    label: 'Resistance bands',
+    summary: 'Add pulling, pressing, warm-up, and trunk work without large equipment.',
+    category: 'Strength',
+  },
+  {
+    value: 'pull-up-bar',
+    label: 'Pull-up bar',
+    summary: 'Gives the generator a simple vertical pulling option.',
+    category: 'Strength',
+  },
+  {
+    value: 'medicine-ball',
+    label: 'Medicine ball',
+    summary: 'Useful for throws, slams, and rotational power work.',
+    category: 'Support',
+  },
+  {
+    value: 'suspension-trainer',
+    label: 'Suspension trainer',
+    summary: 'Adds scalable rows, presses, and trunk stability work.',
+    category: 'Support',
   },
 ]
 const RECOVERY_METRICS: RecoveryMetricConfig[] = [
@@ -417,6 +505,13 @@ function getWorkoutModeOption(mode: WorkoutGeneratorMode) {
   )
 }
 
+function getHomeEquipmentOption(equipmentId: HomeEquipmentId) {
+  return (
+    HOME_EQUIPMENT_OPTIONS.find((option) => option.value === equipmentId) ??
+    HOME_EQUIPMENT_OPTIONS[0]
+  )
+}
+
 function createEntryId(prefix: string) {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? `${prefix}-${crypto.randomUUID()}`
@@ -496,6 +591,19 @@ function isStoredNutritionTargets(value: unknown): value is NutritionTargets {
     typeof targets.carbs === 'number' &&
     typeof targets.fat === 'number' &&
     typeof targets.hydration === 'number'
+  )
+}
+
+function isStoredHomeEquipmentId(value: unknown): value is HomeEquipmentId {
+  return (
+    typeof value === 'string' &&
+    HOME_EQUIPMENT_OPTIONS.some((option) => option.value === value)
+  )
+}
+
+function sortHomeEquipmentSelection(selection: HomeEquipmentId[]) {
+  return HOME_EQUIPMENT_OPTIONS.flatMap((option) =>
+    selection.includes(option.value) ? [option.value] : [],
   )
 }
 
@@ -609,6 +717,40 @@ function loadStoredNutritionTargets() {
   } catch {
     return DEFAULT_NUTRITION_TARGETS
   }
+}
+
+function loadStoredHomeEquipment() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(HOME_EQUIPMENT_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortHomeEquipmentSelection(parsed.filter(isStoredHomeEquipmentId))
+  } catch {
+    return []
+  }
+}
+
+function formatHomeEquipmentSummary(homeEquipment: HomeEquipmentId[]) {
+  if (!homeEquipment.length) {
+    return 'Bodyweight only'
+  }
+
+  return homeEquipment
+    .map((equipmentId) => getHomeEquipmentOption(equipmentId).label)
+    .join(', ')
 }
 
 function buildRatioPath(points: DailyLoadPoint[], maxRatio: number) {
@@ -1595,6 +1737,7 @@ function Sidebar({
   nutritionAverage,
   nutritionBand,
   nutritionLogCount,
+  homeEquipment,
 }: {
   activeSection: AppSectionId
   onSelect: (section: AppSectionId) => void
@@ -1612,12 +1755,14 @@ function Sidebar({
   nutritionAverage: number | null
   nutritionBand: NutritionBand
   nutritionLogCount: number
+  homeEquipment: HomeEquipmentId[]
 }) {
   const isDashboard = activeSection === 'dashboard'
   const isWorkload = activeSection === 'workload'
   const isRecovery = activeSection === 'recovery'
   const isNutrition = activeSection === 'nutrition'
   const isWorkoutGenerator = activeSection === 'workout-generator'
+  const isSettings = activeSection === 'settings'
 
   return (
     <aside
@@ -1677,10 +1822,12 @@ function Sidebar({
             : isWorkload
               ? 'Current workload'
               : isRecovery
-            ? 'Current recovery'
-            : isNutrition
+                ? 'Current recovery'
+                : isNutrition
               ? 'Current nutrition'
-              : 'Generator context'}
+              : isSettings
+                ? 'Home setup'
+                : 'Generator context'}
         </p>
         <div className="sidebar-status-grid">
           {isDashboard ? (
@@ -1702,6 +1849,25 @@ function Sidebar({
               <div>
                 <span>Sessions</span>
                 <strong>{weeklySessionCount}</strong>
+              </div>
+            </>
+          ) : isSettings ? (
+            <>
+              <div>
+                <span>Selected gear</span>
+                <strong>{homeEquipment.length}</strong>
+              </div>
+              <div>
+                <span>Home mode</span>
+                <strong>{homeEquipment.length ? 'Ready' : 'Bodyweight'}</strong>
+              </div>
+              <div>
+                <span>Quick view</span>
+                <strong>{formatHomeEquipmentSummary(homeEquipment)}</strong>
+              </div>
+              <div>
+                <span>Generator</span>
+                <strong>Uses this setup</strong>
               </div>
             </>
           ) : isRecovery ? (
@@ -3078,6 +3244,8 @@ function WorkoutGeneratorWorkspace({
   latestNutritionEntry,
   nutritionBand,
   weeklySessionCount,
+  homeEquipment,
+  onOpenHomeEquipmentSettings,
   onUseSuggestion,
   feedbackMessage,
 }: {
@@ -3091,6 +3259,8 @@ function WorkoutGeneratorWorkspace({
   latestNutritionEntry: NutritionEntry | undefined
   nutritionBand: NutritionBand
   weeklySessionCount: number
+  homeEquipment: HomeEquipmentId[]
+  onOpenHomeEquipmentSettings: () => void
   onUseSuggestion: (suggestion: WorkoutSuggestion) => void
   feedbackMessage: string
 }) {
@@ -3100,6 +3270,7 @@ function WorkoutGeneratorWorkspace({
   const recommendedSuggestion = plan.suggestions[0]
   const [expandedSuggestionId, setExpandedSuggestionId] =
     useState<WorkoutSuggestion['id']>('recommended')
+  const homeEquipmentSummary = formatHomeEquipmentSummary(homeEquipment)
 
   return (
     <div className="content-shell">
@@ -3189,18 +3360,29 @@ function WorkoutGeneratorWorkspace({
 
               <label>
                 Format
-                <select
-                  value={formState.mode}
-                  onChange={(event) =>
-                    onInputChange('mode', event.currentTarget.value)
-                  }
-                >
-                  {WORKOUT_MODE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="generator-format-row">
+                  <select
+                    value={formState.mode}
+                    onChange={(event) =>
+                      onInputChange('mode', event.currentTarget.value)
+                    }
+                  >
+                    {WORKOUT_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {formState.mode === 'home' ? (
+                    <button
+                      type="button"
+                      className="secondary-button generator-format-shortcut"
+                      onClick={onOpenHomeEquipmentSettings}
+                    >
+                      Home equipment
+                    </button>
+                  ) : null}
+                </div>
               </label>
 
               <label>
@@ -3223,6 +3405,33 @@ function WorkoutGeneratorWorkspace({
               The generator uses your current ACWR, latest recovery check-in,
               and latest nutrition score to scale today's suggestion.
             </p>
+
+            {formState.mode === 'home' ? (
+              <div className="generator-home-setup">
+                <div className="generator-home-setup-header">
+                  <div>
+                    <p className="section-kicker">Home setup</p>
+                    <strong>
+                      {homeEquipment.length
+                        ? `${homeEquipment.length} equipment options selected`
+                        : 'No equipment selected yet'}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={onOpenHomeEquipmentSettings}
+                  >
+                    Edit setup
+                  </button>
+                </div>
+                <p>
+                  {homeEquipment.length
+                    ? `Home workouts will use ${homeEquipmentSummary}.`
+                    : 'Home workouts will default to bodyweight, mobility, and in-place cardio until you add equipment in Settings.'}
+                </p>
+              </div>
+            ) : null}
 
             <div className="entry-footer">
               <div className="load-preview">
@@ -3455,6 +3664,224 @@ function WorkoutGeneratorWorkspace({
   )
 }
 
+function SettingsWorkspace({
+  homeEquipment,
+  onToggleHomeEquipment,
+  onClearHomeEquipment,
+  onOpenWorkoutGenerator,
+}: {
+  homeEquipment: HomeEquipmentId[]
+  onToggleHomeEquipment: (equipmentId: HomeEquipmentId) => void
+  onClearHomeEquipment: () => void
+  onOpenWorkoutGenerator: () => void
+}) {
+  const selectedCount = homeEquipment.length
+  const selectedEquipment = homeEquipment.map((equipmentId) =>
+    getHomeEquipmentOption(equipmentId),
+  )
+
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Settings</p>
+        <h1>Dial in the equipment you have at home.</h1>
+        <p className="content-summary">
+          The workout generator uses this list whenever you choose the home
+          format, so the suggested exercises match what is actually available.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Home setup</p>
+            <h2>
+              {selectedCount
+                ? `${selectedCount} tools ready for home sessions`
+                : 'Bodyweight fallback is active'}
+            </h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Cardio</span>
+              <strong>
+                {
+                  selectedEquipment.filter(
+                    (equipment) => equipment.category === 'Cardio',
+                  ).length
+                }
+              </strong>
+              <small>machines or compact conditioning tools</small>
+            </div>
+            <div>
+              <span>Strength</span>
+              <strong>
+                {
+                  selectedEquipment.filter(
+                    (equipment) => equipment.category === 'Strength',
+                  ).length
+                }
+              </strong>
+              <small>loaded movements and pull or press options</small>
+            </div>
+            <div>
+              <span>Generator view</span>
+              <strong>{selectedCount ? 'Customized' : 'Bodyweight'}</strong>
+              <small>applies automatically in home mode</small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <p className="section-kicker">Current selection</p>
+          <p className="hero-focus-summary">
+            {selectedCount
+              ? formatHomeEquipmentSummary(homeEquipment)
+              : 'No equipment selected yet.'}
+          </p>
+          <p className="hero-focus-detail">
+            {selectedCount
+              ? 'You can change this any time and the generator will adapt right away.'
+              : 'If you leave this empty, home workouts will stay bodyweight-first and space-efficient.'}
+          </p>
+        </aside>
+      </section>
+
+      <main className="workspace">
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Equipment list</p>
+              <h2>Select what is available</h2>
+            </div>
+            <p>
+              Toggle every tool you actually have access to for home training.
+            </p>
+          </div>
+
+          <div className="settings-equipment-grid">
+            {HOME_EQUIPMENT_OPTIONS.map((option) => {
+              const isSelected = homeEquipment.includes(option.value)
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`equipment-option${isSelected ? ' is-selected' : ''}`}
+                  aria-pressed={isSelected}
+                  onClick={() => onToggleHomeEquipment(option.value)}
+                >
+                  <div className="equipment-option-header">
+                    <strong>{option.label}</strong>
+                    <span className="equipment-option-check">
+                      {isSelected ? 'Selected' : 'Tap to add'}
+                    </span>
+                  </div>
+                  <span className="equipment-option-category">
+                    {option.category}
+                  </span>
+                  <p>{option.summary}</p>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="entry-footer">
+            <div className="load-preview">
+              <span>Selected equipment</span>
+              <strong>{selectedCount}</strong>
+            </div>
+            <div className="entry-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={onOpenWorkoutGenerator}
+              >
+                Open workout generator
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={onClearHomeEquipment}
+                disabled={!selectedCount}
+              >
+                Clear selection
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="section-panel trend-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">How it works</p>
+              <h2>What changes in home mode</h2>
+            </div>
+            <p>
+              The home generator swaps in exercises that match your selected
+              equipment, with bodyweight fallbacks whenever a tool is missing.
+            </p>
+          </div>
+
+          <div className="generator-adjustment-grid">
+            <article className="generator-adjustment-card">
+              <span className="generator-adjustment-dot" aria-hidden="true" />
+              <p>
+                Cardio suggestions prefer treadmill, bike, rower, or jump-rope
+                work when those tools are selected.
+              </p>
+            </article>
+            <article className="generator-adjustment-card">
+              <span className="generator-adjustment-dot" aria-hidden="true" />
+              <p>
+                Strength suggestions prioritize dumbbells, kettlebells, bands,
+                suspension work, and pull-up options when they are available.
+              </p>
+            </article>
+            <article className="generator-adjustment-card">
+              <span className="generator-adjustment-dot" aria-hidden="true" />
+              <p>
+                If nothing is selected, the generator still works and keeps the
+                session practical with bodyweight and mobility options.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section className="section-panel load-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Selected now</p>
+              <h2>Your current home setup</h2>
+            </div>
+            <p>
+              This is the exact equipment list the generator will use for the
+              home format today.
+            </p>
+          </div>
+
+          {selectedCount ? (
+            <div className="settings-selected-grid">
+              {selectedEquipment.map((equipment) => (
+                <article key={equipment.value} className="settings-selected-card">
+                  <span>{equipment.category}</span>
+                  <strong>{equipment.label}</strong>
+                  <p>{equipment.summary}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="generator-card-collapsed-copy">
+              No home equipment is selected yet, so home workouts will default
+              to bodyweight, mobility, and in-place conditioning options.
+            </p>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}
+
 function App() {
   const [sessions, setSessions] = useState<WorkloadSession[]>(() =>
     loadStoredSessions(),
@@ -3467,6 +3894,9 @@ function App() {
   )
   const [nutritionTargets, setNutritionTargets] = useState<NutritionTargets>(() =>
     loadStoredNutritionTargets(),
+  )
+  const [homeEquipment, setHomeEquipment] = useState<HomeEquipmentId[]>(() =>
+    loadStoredHomeEquipment(),
   )
   const [activeSection, setActiveSection] = useState<AppSectionId>('dashboard')
   const [formState, setFormState] = useState<SessionFormState>(() =>
@@ -3589,6 +4019,7 @@ function App() {
     recoveryScore: latestRecoveryEntry?.score ?? null,
     nutritionScore: latestNutritionEntry?.score ?? null,
     weeklySessionCount,
+    homeEquipment,
   })
 
   useEffect(() => {
@@ -3615,6 +4046,13 @@ function App() {
       JSON.stringify(nutritionTargets),
     )
   }, [nutritionTargets])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      HOME_EQUIPMENT_STORAGE_KEY,
+      JSON.stringify(homeEquipment),
+    )
+  }, [homeEquipment])
 
   useEffect(() => {
     if (!isSidebarOpen) {
@@ -3683,6 +4121,14 @@ function App() {
       ...current,
       [field]: value,
     }))
+  }
+
+  const handleToggleHomeEquipment = (equipmentId: HomeEquipmentId) => {
+    setHomeEquipment((current) =>
+      current.includes(equipmentId)
+        ? current.filter((item) => item !== equipmentId)
+        : sortHomeEquipmentSelection([...current, equipmentId]),
+    )
   }
 
   const handleAddSession = (event: FormEvent<HTMLFormElement>) => {
@@ -3899,12 +4345,18 @@ function App() {
       rpe: suggestion.rpe,
       load: suggestion.estimatedLoad,
       notes: [
+        `Format: ${getWorkoutModeOption(workoutGeneratorFormState.mode).label}.`,
         `Generator: ${suggestion.label}.`,
+        workoutGeneratorFormState.mode === 'home'
+          ? `Home equipment: ${formatHomeEquipmentSummary(homeEquipment)}.`
+          : null,
         ...suggestion.blocks.map((block) => `${block.label}: ${block.detail}`),
         `Exercises: ${exerciseDetails}`,
         `Fueling: ${suggestion.fueling}`,
         `Caution: ${suggestion.caution}`,
-      ].join(' '),
+      ]
+        .filter((note): note is string => Boolean(note))
+        .join(' '),
       createdAt: new Date().toISOString(),
     }
 
@@ -4060,6 +4512,7 @@ function App() {
         nutritionAverage={nutritionAverage}
         nutritionBand={nutritionBand}
         nutritionLogCount={nutritionLogCount}
+        homeEquipment={homeEquipment}
       />
 
       <div className="app-content">
@@ -4142,6 +4595,13 @@ function App() {
             recentNutritionEntries={recentNutritionEntries}
             onDeleteEntry={handleDeleteNutritionEntry}
           />
+        ) : activeSection === 'settings' ? (
+          <SettingsWorkspace
+            homeEquipment={homeEquipment}
+            onToggleHomeEquipment={handleToggleHomeEquipment}
+            onClearHomeEquipment={() => setHomeEquipment([])}
+            onOpenWorkoutGenerator={() => handleSelectSection('workout-generator')}
+          />
         ) : (
           <WorkoutGeneratorWorkspace
             formState={workoutGeneratorFormState}
@@ -4154,6 +4614,8 @@ function App() {
             latestNutritionEntry={latestNutritionEntry}
             nutritionBand={nutritionBand}
             weeklySessionCount={weeklySessionCount}
+            homeEquipment={homeEquipment}
+            onOpenHomeEquipmentSettings={() => handleSelectSection('settings')}
             onUseSuggestion={handleUseGeneratedWorkout}
             feedbackMessage={workoutGeneratorMessage}
           />
