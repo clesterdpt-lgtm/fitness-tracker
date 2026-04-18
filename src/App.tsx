@@ -3098,6 +3098,8 @@ function WorkoutGeneratorWorkspace({
   const modeOption = getWorkoutModeOption(formState.mode)
   const preferredMinutes = parsePositiveNumber(formState.availableMinutes)
   const recommendedSuggestion = plan.suggestions[0]
+  const [expandedSuggestionId, setExpandedSuggestionId] =
+    useState<WorkoutSuggestion['id']>('recommended')
 
   return (
     <div className="content-shell">
@@ -3313,75 +3315,139 @@ function WorkoutGeneratorWorkspace({
             </div>
             <p>
               Every option includes duration, target RPE, estimated load, and a
-              one-click save into the training log.
+              specific exercise list once you select it.
             </p>
           </div>
 
           <div className="generator-card-grid">
-            {plan.suggestions.map((suggestion) => (
-              <article
-                key={suggestion.id}
-                className={`generator-card${
-                  suggestion.id === 'recommended' ? ' is-featured' : ''
-                }`}
-              >
-                <div className="generator-card-header">
-                  <span className="generator-card-label">{suggestion.label}</span>
-                  <h3>{suggestion.title}</h3>
-                  <p>{suggestion.summary}</p>
-                </div>
+            {plan.suggestions.map((suggestion) => {
+              const isExpanded = suggestion.id === expandedSuggestionId
+              const detailId = `generator-suggestion-${suggestion.id}`
+              const exercisePreview = suggestion.exercises
+                .slice(0, 2)
+                .map((exercise) => exercise.name)
+                .join(', ')
 
-                <div className="generator-metric-grid">
-                  <div className="generator-metric">
-                    <span>Duration</span>
-                    <strong>{formatMinutes(suggestion.duration)}</strong>
+              return (
+                <article
+                  key={suggestion.id}
+                  className={`generator-card${
+                    suggestion.id === 'recommended' ? ' is-featured' : ''
+                  }${isExpanded ? ' is-expanded' : ''}`}
+                >
+                  <div className="generator-card-header">
+                    <span className="generator-card-label">{suggestion.label}</span>
+                    <h3>{suggestion.title}</h3>
+                    <p>{suggestion.summary}</p>
                   </div>
-                  <div className="generator-metric">
-                    <span>Target RPE</span>
-                    <strong>{formatRpe(suggestion.rpe)}</strong>
-                  </div>
-                  <div className="generator-metric">
-                    <span>Estimated load</span>
-                    <strong>{formatLoad(suggestion.estimatedLoad)}</strong>
-                  </div>
-                </div>
 
-                <div className="generator-block-list">
-                  {suggestion.blocks.map((block) => (
-                    <div key={block.label} className="generator-block">
-                      <strong>{block.label}</strong>
-                      <p>{block.detail}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="generator-card-notes">
-                  <p>
-                    <strong>Why this fits:</strong> {suggestion.rationale}
-                  </p>
-                  <p>
-                    <strong>Fueling:</strong> {suggestion.fueling}
-                  </p>
-                  <p>
-                    <strong>Caution:</strong> {suggestion.caution}
-                  </p>
-                </div>
-
-                <div className="entry-actions">
                   <button
                     type="button"
-                    className={
-                      suggestion.id === 'recommended'
-                        ? 'primary-button'
-                        : 'secondary-button'
-                    }
-                    onClick={() => onUseSuggestion(suggestion)}
+                    className="generator-card-toggle"
+                    onClick={() => setExpandedSuggestionId(suggestion.id)}
+                    aria-expanded={isExpanded}
+                    aria-controls={detailId}
                   >
-                    Add to training log
+                    <span>
+                      {isExpanded
+                        ? 'Selected workout'
+                        : 'Select workout to view specifics'}
+                    </span>
+                    <span className="generator-card-chevron" aria-hidden="true">
+                      {isExpanded ? '-' : '+'}
+                    </span>
                   </button>
-                </div>
-              </article>
-            ))}
+
+                  <div className="generator-metric-grid">
+                    <div className="generator-metric">
+                      <span>Duration</span>
+                      <strong>{formatMinutes(suggestion.duration)}</strong>
+                    </div>
+                    <div className="generator-metric">
+                      <span>Target RPE</span>
+                      <strong>{formatRpe(suggestion.rpe)}</strong>
+                    </div>
+                    <div className="generator-metric">
+                      <span>Estimated load</span>
+                      <strong>{formatLoad(suggestion.estimatedLoad)}</strong>
+                    </div>
+                  </div>
+
+                  {isExpanded ? (
+                    <div id={detailId} className="generator-card-details">
+                      <div className="generator-card-section">
+                        <p className="generator-card-section-title">
+                          Suggested exercises
+                        </p>
+                        <div className="generator-exercise-list">
+                          {suggestion.exercises.map((exercise) => (
+                            <article
+                              key={`${exercise.name}-${exercise.prescription}`}
+                              className="generator-exercise"
+                            >
+                              <div className="generator-exercise-header">
+                                <strong>{exercise.name}</strong>
+                                <span className="generator-exercise-prescription">
+                                  {exercise.prescription}
+                                </span>
+                              </div>
+                              <p className="generator-exercise-copy">
+                                {exercise.detail}
+                              </p>
+                            </article>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="generator-card-section">
+                        <p className="generator-card-section-title">
+                          Session flow
+                        </p>
+                        <div className="generator-block-list">
+                          {suggestion.blocks.map((block) => (
+                            <div key={block.label} className="generator-block">
+                              <strong>{block.label}</strong>
+                              <p>{block.detail}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="generator-card-notes">
+                        <p>
+                          <strong>Why this fits:</strong> {suggestion.rationale}
+                        </p>
+                        <p>
+                          <strong>Fueling:</strong> {suggestion.fueling}
+                        </p>
+                        <p>
+                          <strong>Caution:</strong> {suggestion.caution}
+                        </p>
+                      </div>
+
+                      <div className="entry-actions">
+                        <button
+                          type="button"
+                          className={
+                            suggestion.id === 'recommended'
+                              ? 'primary-button'
+                              : 'secondary-button'
+                          }
+                          onClick={() => onUseSuggestion(suggestion)}
+                        >
+                          Add to training log
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p id={detailId} className="generator-card-collapsed-copy">
+                      Select this option to reveal the specific exercise list
+                      {exercisePreview ? `, including ${exercisePreview}` : ''}.
+                    </p>
+                  )}
+                </article>
+              )
+            })}
           </div>
         </section>
       </main>
@@ -3818,6 +3884,13 @@ function App() {
   }
 
   const handleUseGeneratedWorkout = (suggestion: WorkoutSuggestion) => {
+    const exerciseDetails = suggestion.exercises
+      .map(
+        (exercise) =>
+          `${exercise.name} (${exercise.prescription}): ${exercise.detail}`,
+      )
+      .join(' | ')
+
     const nextSession: WorkloadSession = {
       id: createEntryId('session'),
       title: suggestion.title,
@@ -3828,6 +3901,7 @@ function App() {
       notes: [
         `Generator: ${suggestion.label}.`,
         ...suggestion.blocks.map((block) => `${block.label}: ${block.detail}`),
+        `Exercises: ${exerciseDetails}`,
         `Fueling: ${suggestion.fueling}`,
         `Caution: ${suggestion.caution}`,
       ].join(' '),
