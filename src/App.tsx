@@ -112,6 +112,7 @@ type WorkoutGeneratorFormState = {
 
 type AppSectionId =
   | 'dashboard'
+  | 'workload'
   | 'recovery'
   | 'workout-generator'
   | 'nutrition'
@@ -151,6 +152,13 @@ const APP_SECTIONS: AppSection[] = [
   {
     id: 'dashboard',
     label: 'Dashboard',
+    eyebrow: 'Live workspace',
+    summary: 'Daily snapshot across workload, recovery, generator, and nutrition.',
+    badge: 'Live',
+  },
+  {
+    id: 'workload',
+    label: 'Workload',
     eyebrow: 'Live workspace',
     summary: 'ACWR tracking, recent load, and session logging.',
     badge: 'Live',
@@ -1605,6 +1613,8 @@ function Sidebar({
   nutritionBand: NutritionBand
   nutritionLogCount: number
 }) {
+  const isDashboard = activeSection === 'dashboard'
+  const isWorkload = activeSection === 'workload'
   const isRecovery = activeSection === 'recovery'
   const isNutrition = activeSection === 'nutrition'
   const isWorkoutGenerator = activeSection === 'workout-generator'
@@ -1662,16 +1672,39 @@ function Sidebar({
 
       <div className="sidebar-status">
         <p className="section-kicker">
-          {isRecovery
+          {isDashboard
+            ? 'Daily snapshot'
+            : isWorkload
+              ? 'Current workload'
+              : isRecovery
             ? 'Current recovery'
             : isNutrition
               ? 'Current nutrition'
-              : isWorkoutGenerator
-                ? 'Generator context'
-                : 'Current dashboard'}
+              : 'Generator context'}
         </p>
         <div className="sidebar-status-grid">
-          {isRecovery ? (
+          {isDashboard ? (
+            <>
+              <div>
+                <span>A:C ratio</span>
+                <strong>{formatRatio(currentSnapshot?.ratio ?? null)}</strong>
+              </div>
+              <div>
+                <span>Recovery</span>
+                <strong>{formatRecoveryScore(latestRecoveryEntry?.score ?? null)}</strong>
+              </div>
+              <div>
+                <span>Nutrition</span>
+                <strong>
+                  {formatNutritionScore(latestNutritionEntry?.score ?? null)}
+                </strong>
+              </div>
+              <div>
+                <span>Sessions</span>
+                <strong>{weeklySessionCount}</strong>
+              </div>
+            </>
+          ) : isRecovery ? (
             <>
               <div>
                 <span>Latest score</span>
@@ -1744,7 +1777,9 @@ function Sidebar({
           )}
         </div>
         <p>
-          {isRecovery
+          {isDashboard
+            ? 'Use the dashboard to scan every section quickly, then jump into the area that needs action.'
+            : isRecovery
             ? recoveryBand.detail
             : isNutrition
               ? nutritionBand.detail
@@ -1752,6 +1787,9 @@ function Sidebar({
                 ? 'The generator uses current load, recovery, and fueling signals to scale the session.'
                 : ratioBand.detail}
         </p>
+        {isDashboard ? (
+          <p>Start broad, then dive into workload, recovery, nutrition, or the generator.</p>
+        ) : null}
         {isRecovery ? (
           <p>{recoveryCheckIns}/7 morning check-ins logged this week.</p>
         ) : null}
@@ -1769,7 +1807,289 @@ function Sidebar({
   )
 }
 
+function DashboardSnapshotCard({
+  section,
+  kicker,
+  title,
+  summary,
+  metrics,
+  tone,
+  actionLabel,
+  featured = false,
+  onOpen,
+}: {
+  section: AppSectionId
+  kicker: string
+  title: string
+  summary: string
+  metrics: Array<{ label: string; value: string; detail: string }>
+  tone: string
+  actionLabel: string
+  featured?: boolean
+  onOpen: (section: AppSectionId) => void
+}) {
+  return (
+    <article
+      className={`dashboard-card section-panel${featured ? ' is-featured' : ''}`}
+      style={{ '--dashboard-accent': tone } as CSSProperties}
+    >
+      <div className="dashboard-card-header">
+        <p className="section-kicker">{kicker}</p>
+        <h2>{title}</h2>
+        <p>{summary}</p>
+      </div>
+
+      <div className="dashboard-card-metrics">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="dashboard-card-metric">
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.detail}</small>
+          </div>
+        ))}
+      </div>
+
+      <div className="entry-actions">
+        <button
+          type="button"
+          className={featured ? 'primary-button' : 'secondary-button'}
+          onClick={() => onOpen(section)}
+        >
+          {actionLabel}
+        </button>
+      </div>
+    </article>
+  )
+}
+
 function DashboardWorkspace({
+  currentSnapshot,
+  baselineProgress,
+  ratioBand,
+  weeklySessionCount,
+  latestRecoveryEntry,
+  recoveryAverage,
+  recoveryBand,
+  recoveryCheckIns,
+  latestNutritionEntry,
+  nutritionAverage,
+  nutritionBand,
+  nutritionLogCount,
+  workoutGeneratorPlan,
+  onOpenSection,
+}: {
+  currentSnapshot: DailyLoadPoint | undefined
+  baselineProgress: number
+  ratioBand: RatioBand
+  weeklySessionCount: number
+  latestRecoveryEntry: RecoveryEntry | undefined
+  recoveryAverage: number | null
+  recoveryBand: RecoveryBand
+  recoveryCheckIns: number
+  latestNutritionEntry: NutritionEntry | undefined
+  nutritionAverage: number | null
+  nutritionBand: NutritionBand
+  nutritionLogCount: number
+  workoutGeneratorPlan: WorkoutGeneratorPlan
+  onOpenSection: (section: AppSectionId) => void
+}) {
+  const recommendedSuggestion = workoutGeneratorPlan.suggestions[0]
+
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Dashboard</p>
+        <h1>See every training signal in one place.</h1>
+        <p className="content-summary">
+          Use this overview as your daily starting point, then jump straight
+          into workload, recovery, nutrition, or the workout generator from the
+          section that needs attention.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Daily snapshot</p>
+            <h2>Current training picture</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Workload</span>
+              <strong>{formatRatio(currentSnapshot?.ratio ?? null)}</strong>
+              <small>{ratioBand.label.toLowerCase()}</small>
+            </div>
+            <div>
+              <span>Recovery</span>
+              <strong>{formatRecoveryScore(latestRecoveryEntry?.score ?? null)}</strong>
+              <small>{recoveryBand.label.toLowerCase()}</small>
+            </div>
+            <div>
+              <span>Nutrition</span>
+              <strong>
+                {formatNutritionScore(latestNutritionEntry?.score ?? null)}
+              </strong>
+              <small>{nutritionBand.label.toLowerCase()}</small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <div className="dashboard-focus">
+            <p className="section-kicker">Next move</p>
+            <h2>{recommendedSuggestion.title}</h2>
+            <p className="hero-focus-summary">{workoutGeneratorPlan.headline}</p>
+            <p className="hero-focus-detail">
+              {formatMinutes(recommendedSuggestion.duration)} at RPE{' '}
+              {formatRpe(recommendedSuggestion.rpe)} for an estimated load of{' '}
+              {formatLoad(recommendedSuggestion.estimatedLoad)}.
+            </p>
+            <div className="entry-actions">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => onOpenSection('workout-generator')}
+              >
+                Open workout generator
+              </button>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section className="dashboard-grid">
+        <DashboardSnapshotCard
+          section="workload"
+          kicker="Workload"
+          title="Acute to chronic workload"
+          summary={getRatioSummary(
+            currentSnapshot?.ratio ?? null,
+            ratioBand,
+            baselineProgress,
+          )}
+          metrics={[
+            {
+              label: 'Acute load',
+              value: formatLoad(currentSnapshot?.acuteLoad ?? 0),
+              detail: 'last 7 days',
+            },
+            {
+              label: 'Chronic load',
+              value: formatLoad(currentSnapshot?.chronicLoad ?? null),
+              detail: '28-day weekly baseline',
+            },
+            {
+              label: 'Sessions',
+              value: `${weeklySessionCount}`,
+              detail: 'logged this week',
+            },
+          ]}
+          tone={ratioBand.color}
+          actionLabel="Open workload"
+          featured
+          onOpen={onOpenSection}
+        />
+
+        <DashboardSnapshotCard
+          section="recovery"
+          kicker="Recovery"
+          title="Morning readiness"
+          summary={getRecoverySummary(
+            latestRecoveryEntry?.score ?? null,
+            recoveryAverage,
+            recoveryBand,
+          )}
+          metrics={[
+            {
+              label: 'Latest score',
+              value: formatRecoveryScore(latestRecoveryEntry?.score ?? null),
+              detail: latestRecoveryEntry
+                ? formatShortDate(latestRecoveryEntry.date)
+                : 'no check-in yet',
+            },
+            {
+              label: '7d average',
+              value: formatRecoveryScore(recoveryAverage),
+              detail: recoveryBand.label.toLowerCase(),
+            },
+            {
+              label: 'Check-ins',
+              value: `${recoveryCheckIns}/7`,
+              detail: 'days logged this week',
+            },
+          ]}
+          tone={recoveryBand.color}
+          actionLabel="Open recovery"
+          onOpen={onOpenSection}
+        />
+
+        <DashboardSnapshotCard
+          section="nutrition"
+          kicker="Nutrition"
+          title="Fueling and hydration"
+          summary={getNutritionSummary(
+            latestNutritionEntry?.score ?? null,
+            nutritionAverage,
+            nutritionBand,
+          )}
+          metrics={[
+            {
+              label: 'Latest score',
+              value: formatNutritionScore(latestNutritionEntry?.score ?? null),
+              detail: latestNutritionEntry
+                ? formatShortDate(latestNutritionEntry.date)
+                : 'no log yet',
+            },
+            {
+              label: 'Calories',
+              value: formatCalories(latestNutritionEntry?.calories ?? null),
+              detail: latestNutritionEntry
+                ? 'latest day'
+                : 'waiting for first entry',
+            },
+            {
+              label: 'Logged days',
+              value: `${nutritionLogCount}/7`,
+              detail: 'days tracked this week',
+            },
+          ]}
+          tone={nutritionBand.color}
+          actionLabel="Open nutrition"
+          onOpen={onOpenSection}
+        />
+
+        <DashboardSnapshotCard
+          section="workout-generator"
+          kicker="Workout generator"
+          title={recommendedSuggestion.title}
+          summary={workoutGeneratorPlan.detail}
+          metrics={[
+            {
+              label: 'Duration',
+              value: formatMinutes(recommendedSuggestion.duration),
+              detail: recommendedSuggestion.label.toLowerCase(),
+            },
+            {
+              label: 'Target RPE',
+              value: formatRpe(recommendedSuggestion.rpe),
+              detail: workoutGeneratorPlan.readiness.label.toLowerCase(),
+            },
+            {
+              label: 'Estimated load',
+              value: formatLoad(recommendedSuggestion.estimatedLoad),
+              detail: 'ready to log',
+            },
+          ]}
+          tone={workoutGeneratorPlan.readiness.color}
+          actionLabel="Open generator"
+          onOpen={onOpenSection}
+        />
+      </section>
+    </div>
+  )
+}
+
+function WorkloadWorkspace({
   currentSnapshot,
   baselineProgress,
   ratioBand,
@@ -1807,7 +2127,7 @@ function DashboardWorkspace({
   return (
     <div className="content-shell">
       <header className="content-header">
-        <p className="eyebrow">Dashboard</p>
+        <p className="eyebrow">Workload</p>
         <h1>Track acute to chronic workload ratio from day one.</h1>
         <p className="content-summary">
           Log each training session, calculate load from session RPE, and
@@ -3671,6 +3991,23 @@ function App() {
       <div className="app-content">
         {activeSection === 'dashboard' ? (
           <DashboardWorkspace
+            currentSnapshot={currentSnapshot}
+            baselineProgress={baselineProgress}
+            ratioBand={ratioBand}
+            weeklySessionCount={weeklySessionCount}
+            latestRecoveryEntry={latestRecoveryEntry}
+            recoveryAverage={recoveryAverage}
+            recoveryBand={recoveryBand}
+            recoveryCheckIns={recoveryCheckIns}
+            latestNutritionEntry={latestNutritionEntry}
+            nutritionAverage={nutritionAverage}
+            nutritionBand={nutritionBand}
+            nutritionLogCount={nutritionLogCount}
+            workoutGeneratorPlan={workoutGeneratorPlan}
+            onOpenSection={handleSelectSection}
+          />
+        ) : activeSection === 'workload' ? (
+          <WorkloadWorkspace
             currentSnapshot={currentSnapshot}
             baselineProgress={baselineProgress}
             ratioBand={ratioBand}
