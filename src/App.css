@@ -1396,6 +1396,45 @@
   gap: 1rem;
 }
 
+.settings-category-stack,
+.settings-custom-section,
+.settings-custom-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-category-section {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.settings-category-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-category-heading h3 {
+  margin: 0.2rem 0 0;
+  color: var(--muted-strong);
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.settings-category-count {
+  min-width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 32, 0.08);
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--ink);
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .equipment-option {
   padding: 1.05rem;
   border-radius: 1.2rem;
@@ -1466,6 +1505,38 @@
 }
 
 .settings-selected-card strong {
+  color: var(--ink);
+}
+
+.settings-selected-card.is-custom {
+  border-style: dashed;
+}
+
+.settings-custom-card {
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(15, 23, 32, 0.08);
+  background: rgba(255, 255, 255, 0.66);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-custom-card-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.settings-custom-card-copy span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.settings-custom-card-copy strong {
   color: var(--ink);
 }
 
@@ -1602,7 +1673,9 @@ body.app-drawer-open {
   .sidebar-nav-row,
   .generator-home-setup-header,
   .generator-format-row,
-  .equipment-option-header {
+  .equipment-option-header,
+  .settings-category-heading,
+  .settings-custom-card {
     flex-direction: column;
     align-items: start;
   }
