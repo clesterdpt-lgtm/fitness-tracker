@@ -368,6 +368,10 @@ function normalizeExerciseName(name: string) {
   return name.trim().toLowerCase()
 }
 
+function stripTimeboxAnnotation(prescription: string) {
+  return prescription.replace(/(?:\s*\(~\d+\s*min\))+$/i, '').trim()
+}
+
 function hasSameExerciseName(
   firstExercise: WorkoutExerciseSuggestion,
   secondExercise: WorkoutExerciseSuggestion,
@@ -694,13 +698,14 @@ function distributeExerciseMinutes(
 }
 
 function getPrescriptionRepPattern(prescription: string) {
-  const setPatternMatch = prescription.match(/^\d+(?:-\d+)?\s*x\s+(.+)$/i)
+  const cleanPrescription = stripTimeboxAnnotation(prescription)
+  const setPatternMatch = cleanPrescription.match(/^\d+(?:-\d+)?\s*x\s+(.+)$/i)
 
   if (setPatternMatch) {
     return { kind: 'sets' as const, value: setPatternMatch[1] }
   }
 
-  const roundsMatch = prescription.match(/^\d+(?:-\d+)?\s+rounds?$/i)
+  const roundsMatch = cleanPrescription.match(/^\d+(?:-\d+)?\s+rounds?$/i)
 
   if (roundsMatch) {
     return { kind: 'rounds' as const }
@@ -4133,6 +4138,10 @@ function getNextExerciseVariation(
       ]
 
     if (isSameExercise(candidate, currentExercise)) {
+      continue
+    }
+
+    if (hasSameExerciseName(candidate, currentExercise)) {
       continue
     }
 
