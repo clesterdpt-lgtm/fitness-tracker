@@ -254,6 +254,261 @@ function createExercise(
   return { name, prescription, detail }
 }
 
+type ExerciseIntent = 'warmup' | 'quality' | 'steady' | 'strength' | 'recovery'
+
+function getExerciseSearchText(exercise: WorkoutExerciseSuggestion) {
+  return `${exercise.name} ${exercise.prescription} ${exercise.detail}`.toLowerCase()
+}
+
+function getExerciseMovementFamily(exercise: WorkoutExerciseSuggestion) {
+  const text = getExerciseSearchText(exercise)
+
+  const movementMatchers: Array<[string, RegExp[]]> = [
+    ['row', [/\brow(?:er|ing)?\b/]],
+    ['bike', [/\bbike\b/, /\bspin\b/, /\bcycling?\b/, /\bpedal(?:ing)?\b/]],
+    ['run', [/\brun(?:ning)?\b/, /\bjog(?:ging)?\b/, /\bstride(?:s)?\b/]],
+    ['walk', [/\bwalk(?:ing)?\b/, /\btreadmill\b/]],
+    ['jump-rope', [/\bjump rope\b/, /\brope skip\b/, /\brope\b/]],
+    ['squat', [/\bsquat\b/, /\blunge\b/, /\bstep-up\b/]],
+    ['hinge', [/\bdeadlift\b/, /\bhinge\b/, /\bswing\b/, /\bbridge\b/]],
+    ['push', [/\bpush-up\b/, /\bpress\b/]],
+    ['pull', [/\bpull-up\b/, /\bsuspension row\b/, /\bband row\b/]],
+    ['carry', [/\bcarry\b/, /\bmarch\b/]],
+    ['core', [/\bdead bug\b/, /\bside plank\b/, /\bpallof\b/, /\bbreathing\b/, /\bplank\b/]],
+    ['mobility', [/\bmobility\b/, /\bstretch\b/, /\brotation\b/, /\bflow\b/, /\bfoam roll\b/]],
+  ]
+
+  const match = movementMatchers.find(([, matchers]) =>
+    matchers.some((matcher) => matcher.test(text)),
+  )
+
+  return match?.[0] ?? null
+}
+
+function getExerciseIntent(exercise: WorkoutExerciseSuggestion): ExerciseIntent {
+  const text = getExerciseSearchText(exercise)
+
+  if (
+    /\bwarm[\s-]?up\b/.test(text) ||
+    /\bprep\b/.test(text) ||
+    /\bprimer\b/.test(text) ||
+    /\bbuild(?:s|ups)?\b/.test(text)
+  ) {
+    return 'warmup'
+  }
+
+  if (
+    /\binterval/.test(text) ||
+    /\bstrong\b/.test(text) ||
+    /\btempo\b/.test(text) ||
+    /\bacceler/.test(text) ||
+    /\bpickup/.test(text) ||
+    /\bhard\b/.test(text)
+  ) {
+    return 'quality'
+  }
+
+  if (
+    /\brecovery\b/.test(text) ||
+    /\bcool[\s-]?down\b/.test(text) ||
+    /\beasy\b/.test(text) ||
+    /\bbreathing\b/.test(text) ||
+    /\bmobility\b/.test(text) ||
+    /\bstretch\b/.test(text) ||
+    /\breset\b/.test(text)
+  ) {
+    return 'recovery'
+  }
+
+  if (
+    /\bsteady\b/.test(text) ||
+    /\baerobic\b/.test(text) ||
+    /\bendurance\b/.test(text) ||
+    /\bzone 2\b/.test(text) ||
+    /\bconversational\b/.test(text)
+  ) {
+    return 'steady'
+  }
+
+  return 'strength'
+}
+
+function isDistinctRepeat(
+  previousExercise: WorkoutExerciseSuggestion,
+  currentExercise: WorkoutExerciseSuggestion,
+) {
+  const previousIntent = getExerciseIntent(previousExercise)
+  const currentIntent = getExerciseIntent(currentExercise)
+
+  return (
+    previousIntent !== currentIntent &&
+    (previousIntent === 'warmup' ||
+      currentIntent === 'warmup' ||
+      previousIntent === 'quality' ||
+      currentIntent === 'quality')
+  )
+}
+
+function createMovementVariation(
+  movementFamily: string,
+  currentExercise: WorkoutExerciseSuggestion,
+) {
+  const variationMap: Record<string, WorkoutExerciseSuggestion[]> = {
+    row: [
+      createExercise(
+        'Thoracic rotation flow',
+        '2 rounds',
+        'Open the upper back so the next pulling block feels cleaner and less repetitive.',
+      ),
+      createExercise(
+        'Split squat hold',
+        '2 x 20 sec each side',
+        'Shift the work into the legs and trunk instead of repeating another row pattern.',
+      ),
+    ],
+    bike: [
+      createExercise(
+        'Hip flexor mobility',
+        '2 x 30 sec each side',
+        'Break up the repeated cycling pattern with a quick front-of-hip reset.',
+      ),
+      createExercise(
+        'Glute bridge',
+        '2 x 10',
+        'Wake up hip extension instead of stacking another bike block immediately.',
+      ),
+    ],
+    run: [
+      createExercise(
+        'Ankle rocks + calf raises',
+        '2 rounds',
+        'Give the lower legs some support before the next running-specific effort.',
+      ),
+      createExercise(
+        'Dead bug',
+        '2 x 8 each side',
+        'Swap the repeated run cue for trunk control that still supports stride quality.',
+      ),
+    ],
+    walk: [
+      createExercise(
+        'Toe yoga + ankle circles',
+        '2 rounds',
+        'Use a lower-leg reset instead of another nearly identical walking block.',
+      ),
+    ],
+    'jump-rope': [
+      createExercise(
+        'Lateral bounds',
+        '3 x 5 each side',
+        'Keep the elastic theme but change the pattern so it feels more varied.',
+      ),
+    ],
+    squat: [
+      createExercise(
+        'Single-leg Romanian deadlift',
+        '2 x 8 each side',
+        'Balance the knee-dominant work with a hinge and control focus.',
+      ),
+    ],
+    hinge: [
+      createExercise(
+        'Goblet squat',
+        '2 x 8',
+        'Break up repeated hinge work with a more upright lower-body pattern.',
+      ),
+    ],
+    push: [
+      createExercise(
+        'Band or suspension row',
+        '2 x 10',
+        'Balance pressing volume with upper-back work instead of doubling down on the same push pattern.',
+      ),
+    ],
+    pull: [
+      createExercise(
+        'Push-up or dumbbell floor press',
+        '2 x 8',
+        'Alternate the upper-body emphasis so the session does not feel like the same pull twice.',
+      ),
+    ],
+    carry: [
+      createExercise(
+        'Pallof press',
+        '2 x 10 each side',
+        'Keep the trunk demand while changing the movement pattern.',
+      ),
+    ],
+    core: [
+      createExercise(
+        'Hip mobility flow',
+        '2 rounds',
+        'Swap in mobility so the finish does not become trunk work stacked on trunk work.',
+      ),
+    ],
+    mobility: [
+      createExercise(
+        'Brisk walk reset',
+        '5 min',
+        'Use easy movement to change the stimulus after mobility-focused work.',
+      ),
+    ],
+  }
+
+  const options = variationMap[movementFamily]
+
+  if (!options?.length) {
+    return currentExercise
+  }
+
+  const currentText = getExerciseSearchText(currentExercise)
+  const option =
+    options.find((candidate) => candidate.name.toLowerCase() !== currentExercise.name.toLowerCase()) ??
+    options[0]
+
+  if (getExerciseMovementFamily(option) === movementFamily && currentText.includes(option.name.toLowerCase())) {
+    return currentExercise
+  }
+
+  return option
+}
+
+function dedupeAdjacentExercises(exercises: WorkoutExerciseSuggestion[]) {
+  return exercises.reduce<WorkoutExerciseSuggestion[]>((cleanedExercises, exercise) => {
+    const previousExercise = cleanedExercises.at(-1)
+
+    if (!previousExercise) {
+      cleanedExercises.push(exercise)
+      return cleanedExercises
+    }
+
+    const previousFamily = getExerciseMovementFamily(previousExercise)
+    const currentFamily = getExerciseMovementFamily(exercise)
+
+    if (
+      previousFamily &&
+      currentFamily &&
+      previousFamily === currentFamily &&
+      !isDistinctRepeat(previousExercise, exercise)
+    ) {
+      const variation = createMovementVariation(currentFamily, exercise)
+      const variationFamily = getExerciseMovementFamily(variation)
+
+      if (
+        variation.name.toLowerCase() !== previousExercise.name.toLowerCase() &&
+        variationFamily !== previousFamily
+      ) {
+        cleanedExercises.push(variation)
+      }
+
+      return cleanedExercises
+    }
+
+    cleanedExercises.push(exercise)
+    return cleanedExercises
+  }, [])
+}
+
 function getExerciseMainMinutes(duration: number) {
   return Math.max(10, duration - 15)
 }
@@ -2046,15 +2301,14 @@ function createSuggestion(
   suggestion: Omit<WorkoutSuggestion, 'estimatedLoad' | 'exercises'>,
   readiness: WorkoutReadiness | null = null,
 ): WorkoutSuggestion {
+  const exercises = dedupeAdjacentExercises(
+    buildWorkoutExercises(input, suggestion.id, suggestion.duration, readiness),
+  )
+
   return {
     ...suggestion,
     estimatedLoad: createSessionLoad(suggestion.duration, suggestion.rpe) ?? 0,
-    exercises: buildWorkoutExercises(
-      input,
-      suggestion.id,
-      suggestion.duration,
-      readiness,
-    ),
+    exercises,
   }
 }
 
