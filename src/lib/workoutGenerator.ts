@@ -1431,7 +1431,7 @@ function createHomeWarmupExercise(
 
   if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
     return createExercise(
-      'Stationary bike spin',
+      'Stationary bike warm-up spin',
       '5-8 min',
       'Build cadence smoothly before any harder efforts start.',
     )
@@ -1439,7 +1439,7 @@ function createHomeWarmupExercise(
 
   if (hasHomeEquipment(homeEquipment, 'rower')) {
     return createExercise(
-      'Easy row',
+      'Rower warm-up',
       '5-7 min',
       'Use long strokes and stay relaxed through the upper body.',
     )
@@ -1447,7 +1447,7 @@ function createHomeWarmupExercise(
 
   if (hasHomeEquipment(homeEquipment, 'elliptical')) {
     return createExercise(
-      'Easy elliptical spin-up',
+      'Elliptical warm-up',
       '5-8 min',
       'Start with a smooth cadence and let the stride length build naturally.',
     )
