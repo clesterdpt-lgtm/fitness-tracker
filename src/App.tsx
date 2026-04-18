@@ -37,9 +37,12 @@ import {
 } from './lib/recovery'
 import {
   buildWorkoutGeneratorPlan,
+  createWorkoutSuggestionVariation,
+  swapWorkoutSuggestionExercise,
   type CustomHomeEquipment,
   type HomeEquipmentCategory,
   type HomeEquipmentId,
+  type WorkoutGeneratorInput,
   type WorkoutGeneratorGoal,
   type WorkoutGeneratorMode,
   type WorkoutGeneratorPlan,
@@ -116,6 +119,15 @@ type WorkoutGeneratorFormState = {
   goal: WorkoutGeneratorGoal
   mode: WorkoutGeneratorMode
   availableMinutes: string
+}
+
+type WorkoutSuggestionOverrides = Partial<
+  Record<WorkoutSuggestion['id'], WorkoutSuggestion>
+>
+
+type WorkoutSuggestionOverrideState = {
+  contextKey: string
+  suggestions: WorkoutSuggestionOverrides
 }
 
 type AppSectionId =
@@ -3425,6 +3437,8 @@ function WorkoutGeneratorWorkspace({
   customHomeEquipment,
   onOpenHomeEquipmentSettings,
   onUseSuggestion,
+  onRemixSuggestion,
+  onSwapSuggestionExercise,
   feedbackMessage,
 }: {
   formState: WorkoutGeneratorFormState
@@ -3441,6 +3455,11 @@ function WorkoutGeneratorWorkspace({
   customHomeEquipment: CustomHomeEquipment[]
   onOpenHomeEquipmentSettings: () => void
   onUseSuggestion: (suggestion: WorkoutSuggestion) => void
+  onRemixSuggestion: (suggestion: WorkoutSuggestion) => void
+  onSwapSuggestionExercise: (
+    suggestion: WorkoutSuggestion,
+    exerciseIndex: number,
+  ) => void
   feedbackMessage: string
 }) {
   const goalOption = getWorkoutGoalOption(formState.goal)
@@ -3770,14 +3789,24 @@ function WorkoutGeneratorWorkspace({
 
                   {isExpanded ? (
                     <div id={detailId} className="generator-card-details">
+                      <div className="generator-card-toolbar">
+                        <button
+                          type="button"
+                          className="ghost-button generator-inline-action"
+                          onClick={() => onRemixSuggestion(suggestion)}
+                        >
+                          New workout variation
+                        </button>
+                      </div>
+
                       <div className="generator-card-section">
                         <p className="generator-card-section-title">
                           Suggested exercises
                         </p>
                         <div className="generator-exercise-list">
-                          {suggestion.exercises.map((exercise) => (
+                          {suggestion.exercises.map((exercise, exerciseIndex) => (
                             <article
-                              key={`${exercise.name}-${exercise.prescription}`}
+                              key={`${exercise.name}-${exercise.prescription}-${exerciseIndex}`}
                               className="generator-exercise"
                             >
                               <div className="generator-exercise-header">
@@ -3789,6 +3818,20 @@ function WorkoutGeneratorWorkspace({
                               <p className="generator-exercise-copy">
                                 {exercise.detail}
                               </p>
+                              <div className="generator-exercise-actions">
+                                <button
+                                  type="button"
+                                  className="ghost-button generator-inline-action"
+                                  onClick={() =>
+                                    onSwapSuggestionExercise(
+                                      suggestion,
+                                      exerciseIndex,
+                                    )
+                                  }
+                                >
+                                  Change exercise
+                                </button>
+                              </div>
                             </article>
                           ))}
                         </div>
@@ -4266,6 +4309,11 @@ function App() {
   const [recoveryErrorMessage, setRecoveryErrorMessage] = useState('')
   const [nutritionErrorMessage, setNutritionErrorMessage] = useState('')
   const [workoutGeneratorMessage, setWorkoutGeneratorMessage] = useState('')
+  const [workoutSuggestionOverrideState, setWorkoutSuggestionOverrideState] =
+    useState<WorkoutSuggestionOverrideState>({
+      contextKey: '',
+      suggestions: {},
+    })
   const [nutritionTargetsErrorMessage, setNutritionTargetsErrorMessage] =
     useState('')
   const [homeEquipmentErrorMessage, setHomeEquipmentErrorMessage] = useState('')
@@ -4359,7 +4407,7 @@ function App() {
   )
   const workoutGeneratorAvailableMinutes =
     parsePositiveNumber(workoutGeneratorFormState.availableMinutes) ?? 45
-  const workoutGeneratorPlan = buildWorkoutGeneratorPlan({
+  const workoutGeneratorInput: WorkoutGeneratorInput = {
     goal: workoutGeneratorFormState.goal,
     mode: workoutGeneratorFormState.mode,
     availableMinutes: workoutGeneratorAvailableMinutes,
@@ -4370,7 +4418,19 @@ function App() {
     weeklySessionCount,
     homeEquipment,
     customHomeEquipment,
-  })
+  }
+  const workoutGeneratorContextKey = JSON.stringify(workoutGeneratorInput)
+  const baseWorkoutGeneratorPlan = buildWorkoutGeneratorPlan(workoutGeneratorInput)
+  const workoutSuggestionOverrides =
+    workoutSuggestionOverrideState.contextKey === workoutGeneratorContextKey
+      ? workoutSuggestionOverrideState.suggestions
+      : {}
+  const workoutGeneratorPlan: WorkoutGeneratorPlan = {
+    ...baseWorkoutGeneratorPlan,
+    suggestions: baseWorkoutGeneratorPlan.suggestions.map(
+      (suggestion) => workoutSuggestionOverrides[suggestion.id] ?? suggestion,
+    ),
+  }
 
   useEffect(() => {
     window.localStorage.setItem(WORKLOAD_STORAGE_KEY, JSON.stringify(sessions))
@@ -4468,6 +4528,46 @@ function App() {
       ...current,
       [field]: value as WorkoutGeneratorFormState[typeof field],
     }))
+  }
+
+  const handleRemixWorkoutSuggestion = (suggestion: WorkoutSuggestion) => {
+    setWorkoutGeneratorMessage('')
+    startTransition(() => {
+      setWorkoutSuggestionOverrideState((current) => ({
+        contextKey: workoutGeneratorContextKey,
+        suggestions: {
+          ...(current.contextKey === workoutGeneratorContextKey
+            ? current.suggestions
+            : {}),
+          [suggestion.id]: createWorkoutSuggestionVariation(
+            workoutGeneratorInput,
+            suggestion,
+          ),
+        },
+      }))
+    })
+  }
+
+  const handleSwapWorkoutSuggestionExercise = (
+    suggestion: WorkoutSuggestion,
+    exerciseIndex: number,
+  ) => {
+    setWorkoutGeneratorMessage('')
+    startTransition(() => {
+      setWorkoutSuggestionOverrideState((current) => ({
+        contextKey: workoutGeneratorContextKey,
+        suggestions: {
+          ...(current.contextKey === workoutGeneratorContextKey
+            ? current.suggestions
+            : {}),
+          [suggestion.id]: swapWorkoutSuggestionExercise(
+            workoutGeneratorInput,
+            suggestion,
+            exerciseIndex,
+          ),
+        },
+      }))
+    })
   }
 
   const handleNutritionTargetsInputChange = (
@@ -5045,6 +5145,8 @@ function App() {
             customHomeEquipment={customHomeEquipment}
             onOpenHomeEquipmentSettings={() => handleSelectSection('settings')}
             onUseSuggestion={handleUseGeneratedWorkout}
+            onRemixSuggestion={handleRemixWorkoutSuggestion}
+            onSwapSuggestionExercise={handleSwapWorkoutSuggestionExercise}
             feedbackMessage={workoutGeneratorMessage}
           />
         )}

@@ -269,11 +269,13 @@ function getExerciseMovementFamily(exercise: WorkoutExerciseSuggestion) {
     ['run', [/\brun(?:ning)?\b/, /\bjog(?:ging)?\b/, /\bstride(?:s)?\b/]],
     ['walk', [/\bwalk(?:ing)?\b/, /\btreadmill\b/]],
     ['jump-rope', [/\bjump rope\b/, /\brope skip\b/, /\brope\b/]],
+    ['drill', [/\bskip\b/, /\bdrill\b/, /\bmarch\b/, /\bankling\b/]],
+    ['power', [/\bslam\b/, /\bbound\b/, /\bexplosive\b/, /\btoss\b/, /\bscoop\b/, /\bsquat jump\b/]],
     ['squat', [/\bsquat\b/, /\blunge\b/, /\bstep-up\b/]],
     ['hinge', [/\bdeadlift\b/, /\bhinge\b/, /\bswing\b/, /\bbridge\b/]],
     ['push', [/\bpush-up\b/, /\bpress\b/]],
     ['pull', [/\bpull-up\b/, /\bsuspension row\b/, /\bband row\b/]],
-    ['carry', [/\bcarry\b/, /\bmarch\b/]],
+    ['carry', [/\bcarry\b/, /\bsuitcase march\b/]],
     ['core', [/\bdead bug\b/, /\bside plank\b/, /\bpallof\b/, /\bbreathing\b/, /\bplank\b/]],
     ['mobility', [/\bmobility\b/, /\bstretch\b/, /\brotation\b/, /\bflow\b/, /\bfoam roll\b/]],
   ]
@@ -349,6 +351,36 @@ function isDistinctRepeat(
   )
 }
 
+function isSameExercise(
+  firstExercise: WorkoutExerciseSuggestion,
+  secondExercise: WorkoutExerciseSuggestion,
+) {
+  return (
+    firstExercise.name === secondExercise.name &&
+    firstExercise.prescription === secondExercise.prescription &&
+    firstExercise.detail === secondExercise.detail
+  )
+}
+
+function hasConflictingRepeat(
+  previousExercise: WorkoutExerciseSuggestion | undefined,
+  currentExercise: WorkoutExerciseSuggestion,
+) {
+  if (!previousExercise) {
+    return false
+  }
+
+  const previousFamily = getExerciseMovementFamily(previousExercise)
+  const currentFamily = getExerciseMovementFamily(currentExercise)
+
+  return Boolean(
+    previousFamily &&
+      currentFamily &&
+      previousFamily === currentFamily &&
+      !isDistinctRepeat(previousExercise, currentExercise),
+  )
+}
+
 function createMovementVariation(
   movementFamily: string,
   currentExercise: WorkoutExerciseSuggestion,
@@ -418,6 +450,20 @@ function createMovementVariation(
         'Break up repeated hinge work with a more upright lower-body pattern.',
       ),
     ],
+    drill: [
+      createExercise(
+        'Mobility and tissue prep',
+        '5-8 min',
+        'Switch the drill emphasis into smoother prep work to keep the session feeling fresh.',
+      ),
+    ],
+    power: [
+      createExercise(
+        'Dead bug',
+        '2 x 8 each side',
+        'Swap one power touch for trunk control so the workout keeps some contrast.',
+      ),
+    ],
     push: [
       createExercise(
         'Band or suspension row',
@@ -482,21 +528,15 @@ function dedupeAdjacentExercises(exercises: WorkoutExerciseSuggestion[]) {
       return cleanedExercises
     }
 
-    const previousFamily = getExerciseMovementFamily(previousExercise)
     const currentFamily = getExerciseMovementFamily(exercise)
 
-    if (
-      previousFamily &&
-      currentFamily &&
-      previousFamily === currentFamily &&
-      !isDistinctRepeat(previousExercise, exercise)
-    ) {
+    if (currentFamily && hasConflictingRepeat(previousExercise, exercise)) {
       const variation = createMovementVariation(currentFamily, exercise)
       const variationFamily = getExerciseMovementFamily(variation)
 
       if (
         variation.name.toLowerCase() !== previousExercise.name.toLowerCase() &&
-        variationFamily !== previousFamily
+        variationFamily !== getExerciseMovementFamily(previousExercise)
       ) {
         cleanedExercises.push(variation)
       }
@@ -2267,6 +2307,1345 @@ function buildHomeExercises(
         createHomeCoreExercise(homeEquipment, customHomeEquipment),
       ]
   }
+}
+
+function dedupeExerciseOptions(options: WorkoutExerciseSuggestion[]) {
+  return options.filter(
+    (option, index) =>
+      index === options.findIndex((candidate) => isSameExercise(option, candidate)),
+  )
+}
+
+function buildHomeWarmupVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  const options: WorkoutExerciseSuggestion[] = []
+
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    options.push(
+      createExercise(
+        'Treadmill walk-to-jog',
+        '5-8 min',
+        'Start easy, then let the stride open gradually before the main work.',
+      ),
+      createExercise(
+        'Incline treadmill warm-up',
+        '5-8 min',
+        'Use a gentle incline and let the heart rate rise without rushing the pace.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    options.push(
+      createExercise(
+        'Stationary bike warm-up spin',
+        '5-8 min',
+        'Build cadence smoothly before any harder efforts start.',
+      ),
+      createExercise(
+        'Bike cadence build',
+        '4 x 60 sec smooth / 30 sec easy',
+        'Increase cadence a little each round while the rest of the body stays relaxed.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    options.push(
+      createExercise(
+        'Rower warm-up',
+        '5-7 min',
+        'Use long strokes and stay relaxed through the upper body.',
+      ),
+      createExercise(
+        'Pick drill row warm-up',
+        '5-7 min',
+        'Build the stroke from arms to full slide so the rhythm feels smooth before the main work.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'elliptical')) {
+    options.push(
+      createExercise(
+        'Elliptical warm-up',
+        '5-8 min',
+        'Start with a smooth cadence and let the stride length build naturally.',
+      ),
+      createExercise(
+        'Elliptical cadence build',
+        '5-8 min',
+        'Add a touch more rhythm every minute without changing the relaxed feel.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    options.push(
+      createExercise(
+        'Jump rope primer',
+        '5 x 45 sec easy / 15 sec reset',
+        'Land quietly and keep the shoulders soft as rhythm builds.',
+      ),
+      createExercise(
+        'Rope rhythm build',
+        '4 x 60 sec smooth / 20 sec reset',
+        'Stay springy through the ankles and use the rope more for timing than intensity.',
+      ),
+    )
+  }
+
+  const customCardioNames = getCustomEquipmentNames(customHomeEquipment, [
+    'cardio',
+  ])
+
+  customCardioNames.forEach((equipmentName) => {
+    options.push(
+      createExercise(
+        `${equipmentName} warm-up`,
+        '5-8 min',
+        'Build rhythm gradually and stop the warm-up still feeling fresh.',
+      ),
+      createExercise(
+        `${equipmentName} rhythm build`,
+        '5-8 min',
+        'Let the effort rise only enough to feel coordinated before the main work.',
+      ),
+    )
+  })
+
+  if (
+    hasHomeEquipment(homeEquipment, 'foam-roller') ||
+    hasHomeEquipment(homeEquipment, 'yoga-mat') ||
+    hasCustomEquipmentCategory(customHomeEquipment, ['mobility-recovery'])
+  ) {
+    options.push(
+      createExercise(
+        'Mobility and tissue prep',
+        '5-8 min',
+        'Use your recovery tools to open the hips, thoracic spine, and ankles before the session starts.',
+      ),
+    )
+  }
+
+  options.push(
+    createExercise(
+      'March + mobility warm-up',
+      '5-8 min',
+      'Alternate brisk marching, arm swings, and ankle or hip mobility.',
+    ),
+  )
+
+  return dedupeExerciseOptions(options)
+}
+
+function buildHomeAerobicVariationOptions(
+  duration: number,
+  effort: 'easy' | 'steady',
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  const options: WorkoutExerciseSuggestion[] = []
+
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    options.push(
+      createExercise(
+        effort === 'easy' ? 'Easy treadmill walk or jog' : 'Steady treadmill block',
+        `${duration} min`,
+        effort === 'easy'
+          ? 'Keep the belt speed easy enough that breathing stays relaxed.'
+          : 'Hold a steady effort that stays controlled from first minute to last.',
+      ),
+      createExercise(
+        effort === 'easy'
+          ? 'Incline treadmill walk'
+          : 'Treadmill aerobic ladder',
+        effort === 'easy' ? `${duration} min` : `3 x ${Math.max(5, Math.round(duration / 3))} min`,
+        effort === 'easy'
+          ? 'Use a gentle incline and stay patient enough that the legs feel better as you go.'
+          : 'Break the work into steady chunks that keep the effort honest without turning it into intervals.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    options.push(
+      createExercise(
+        effort === 'easy' ? 'Easy bike spin' : 'Steady bike block',
+        `${duration} min`,
+        effort === 'easy'
+          ? 'Use a light gear and let the legs loosen up.'
+          : 'Stay seated, smooth, and rhythmical through the entire block.',
+      ),
+      createExercise(
+        effort === 'easy' ? 'Bike recovery spin' : 'Bike aerobic ladder',
+        effort === 'easy' ? `${duration} min` : `3 x ${Math.max(5, Math.round(duration / 3))} min`,
+        effort === 'easy'
+          ? 'Keep pressure low and let cadence do most of the work.'
+          : 'Use a steady effort with short resets so the aerobic work feels more structured.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    options.push(
+      createExercise(
+        effort === 'easy' ? 'Easy row' : 'Steady row block',
+        `${duration} min`,
+        effort === 'easy'
+          ? 'Keep the stroke pressure light and the breathing calm.'
+          : 'Use repeatable strokes and avoid yanking the handle to create speed.',
+      ),
+      createExercise(
+        effort === 'easy' ? 'Rower recovery glide' : 'Rower cadence ladder',
+        effort === 'easy' ? `${duration} min` : `4 x ${Math.max(4, Math.round(duration / 4))} min`,
+        effort === 'easy'
+          ? 'Let the handle float back in and keep each stroke smooth and light.'
+          : 'Use small stroke-rate changes to create variety without changing the controlled feel.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'elliptical')) {
+    options.push(
+      createExercise(
+        effort === 'easy' ? 'Easy elliptical block' : 'Steady elliptical block',
+        `${duration} min`,
+        effort === 'easy'
+          ? 'Keep the resistance low and let the movement feel smooth and relaxed.'
+          : 'Stay tall through the torso and keep pressure even through the whole stride.',
+      ),
+      createExercise(
+        effort === 'easy' ? 'Elliptical flush block' : 'Elliptical aerobic ladder',
+        effort === 'easy' ? `${duration} min` : `3 x ${Math.max(5, Math.round(duration / 3))} min`,
+        effort === 'easy'
+          ? 'Use the machine to loosen up without chasing effort.'
+          : 'Break the work into steady chunks with brief easy resets to keep the rhythm honest.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    options.push(
+      createExercise(
+        effort === 'easy' ? 'Jump rope easy intervals' : 'Jump rope rhythm block',
+        effort === 'easy'
+          ? `${Math.max(8, Math.round(duration / 2))} x 45 sec easy / 30 sec reset`
+          : `${Math.max(6, Math.round(duration / 3))} x 90 sec smooth / 30 sec easy`,
+        'Stay light on the feet and pause anytime rhythm starts to break down.',
+      ),
+      createExercise(
+        effort === 'easy' ? 'Low-bounce rope flush' : 'Jump rope cadence ladder',
+        effort === 'easy'
+          ? `${Math.max(8, Math.round(duration / 2))} x 40 sec easy / 20 sec reset`
+          : `${Math.max(5, Math.round(duration / 4))} x 2 min smooth / 30 sec easy`,
+        'Keep the jumps small and use the set structure to stay organized instead of rushed.',
+      ),
+    )
+  }
+
+  const customCardioNames = getCustomEquipmentNames(customHomeEquipment, [
+    'cardio',
+  ])
+
+  customCardioNames.forEach((equipmentName) => {
+    options.push(
+      createExercise(
+        effort === 'easy' ? `${equipmentName} easy block` : `${equipmentName} steady block`,
+        `${duration} min`,
+        effort === 'easy'
+          ? 'Use the custom cardio tool at a pace that feels like recovery work.'
+          : 'Hold a repeatable aerobic effort from first minute to last.',
+      ),
+      createExercise(
+        `${equipmentName} aerobic ladder`,
+        `3 x ${Math.max(5, Math.round(duration / 3))} min`,
+        'Break the work into controlled chunks so the whole block stays organized.',
+      ),
+    )
+  })
+
+  options.push(
+    createExercise(
+      effort === 'easy' ? 'In-place cardio reset' : 'In-place cardio ladder',
+      effort === 'easy' ? `${duration} min` : `3 x ${Math.max(5, Math.round(duration / 3))} min`,
+      effort === 'easy'
+        ? 'Use marching, step-taps, or low-impact movement to keep the body moving without stress.'
+        : 'Alternate brisk step patterns and marching to keep the aerobic work honest without equipment.',
+    ),
+  )
+
+  return dedupeExerciseOptions(options)
+}
+
+function buildHomeIntervalVariationOptions(
+  goal: WorkoutGeneratorGoal,
+  duration: number,
+  readiness: WorkoutReadiness | null,
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  const options: WorkoutExerciseSuggestion[] = []
+  const highReady = readiness?.cap === 'high'
+  const moderateReady = readiness?.cap === 'moderate'
+
+  if (hasHomeEquipment(homeEquipment, 'treadmill')) {
+    options.push(
+      createExercise(
+        goal === 'strength' ? 'Incline treadmill intervals' : 'Treadmill intervals',
+        highReady
+          ? `6 x 2 min strong / 90 sec easy`
+          : moderateReady
+            ? `5 x 2 min controlled hard / 2 min easy`
+            : `${Math.max(10, duration)} min easy treadmill work with 6 x 20 sec pickups`,
+        goal === 'strength'
+          ? 'Use the incline for muscular demand but stay well below a sprint.'
+          : 'Control the faster work so every rep still looks smooth.',
+      ),
+      createExercise(
+        'Treadmill surge ladder',
+        `4 x ${Math.max(2, Math.round(duration / 8))} min steady / 1 min brisk`,
+        'Let the pace rise slightly on the shorter surges without turning the set frantic.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'exercise-bike')) {
+    options.push(
+      createExercise(
+        'Bike intervals',
+        highReady
+          ? '6 x 2 min strong / 90 sec easy'
+          : moderateReady
+            ? '5 x 2 min controlled hard / 2 min easy'
+            : `${Math.max(10, duration)} min easy spin with 6 x 15 sec fast pedals`,
+        'Use a repeatable gear and keep the upper body quiet.',
+      ),
+      createExercise(
+        'Bike power repeats',
+        `5 x ${Math.max(2, Math.round(duration / 8))} min strong / 90 sec easy`,
+        'Keep each rep crisp and stop before form turns choppy.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'rower')) {
+    options.push(
+      createExercise(
+        'Rower intervals',
+        highReady
+          ? '6 x 90 sec strong / 75 sec easy'
+          : moderateReady
+            ? '5 x 90 sec controlled hard / 90 sec easy'
+            : `${Math.max(10, duration)} min easy row with 6 x 15 strong strokes`,
+        'Push with the legs first and keep the finish smooth instead of rushed.',
+      ),
+      createExercise(
+        'Rower stroke-rate ladder',
+        `4 x ${Math.max(2, Math.round(duration / 8))} min build / 1 min easy`,
+        'Use the ladder to change rhythm while keeping stroke pressure controlled.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'elliptical')) {
+    options.push(
+      createExercise(
+        'Elliptical intervals',
+        highReady
+          ? '6 x 2 min strong / 90 sec easy'
+          : moderateReady
+            ? '5 x 2 min controlled hard / 2 min easy'
+            : `${Math.max(10, duration)} min easy elliptical work with 6 x 20 sec brisk surges`,
+        'Stay tall and let the faster work come from rhythm, not tension.',
+      ),
+      createExercise(
+        'Elliptical surge ladder',
+        `4 x ${Math.max(2, Math.round(duration / 8))} min smooth build / 1 min easy`,
+        'Use short controlled surges to change the feel without overcooking the session.',
+      ),
+    )
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
+    options.push(
+      createExercise(
+        goal === 'speed' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
+        highReady
+          ? '8 x 40 sec crisp / 20 sec reset'
+          : moderateReady
+            ? '6 x 45 sec smooth / 30 sec easy'
+            : `${Math.max(10, duration)} min easy jump rope with short quick-feet touches`,
+        'Keep the contacts springy and stop before rhythm falls apart.',
+      ),
+      createExercise(
+        'Jump rope speed ladder',
+        `5 x ${Math.max(1, Math.round(duration / 10))} min quick / 30 sec reset`,
+        'Use the ladder to practice turnover without trying to max out.',
+      ),
+    )
+  }
+
+  const customCardioNames = getCustomEquipmentNames(customHomeEquipment, [
+    'cardio',
+  ])
+
+  customCardioNames.forEach((equipmentName) => {
+    options.push(
+      createExercise(
+        `${equipmentName} intervals`,
+        `5 x ${Math.max(2, Math.round(duration / 8))} min strong / 90 sec easy`,
+        'Use the custom cardio tool for repeatable work bouts that never turn desperate.',
+      ),
+      createExercise(
+        `${equipmentName} surge ladder`,
+        `4 x ${Math.max(2, Math.round(duration / 8))} min build / 1 min easy`,
+        'Use short structured surges to change the feel while staying technically tidy.',
+      ),
+    )
+  })
+
+  options.push(
+    createExercise(
+      goal === 'speed' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
+      `6 x ${Math.max(1, Math.round(duration / 10))} min work / 30 sec easy`,
+      'Use brisk in-place movement, shadow footwork, or low-impact bursts to stay sharp.',
+    ),
+  )
+
+  return dedupeExerciseOptions(options)
+}
+
+function buildRunVariationOptions(
+  intent: ExerciseIntent,
+  duration: number,
+) {
+  const mainMinutes = getExerciseMainMinutes(duration)
+
+  if (intent === 'warmup') {
+    return [
+      createExercise(
+        'Brisk walk warm-up',
+        '5-8 min',
+        'Walk until breathing settles and cadence feels natural.',
+      ),
+      createExercise(
+        'A-skip march',
+        '2 x 20 m',
+        'Prime rhythm and posture before the aerobic work starts.',
+      ),
+      createExercise(
+        'Drill series',
+        'A-skip, B-skip, high knees x 2 rounds',
+        'Use drills to lift posture and cadence before the faster work.',
+      ),
+      createExercise(
+        'Hill march + skips',
+        '2 rounds on a short hill',
+        'Use posture and knee drive to prep for uphill work.',
+      ),
+    ]
+  }
+
+  if (intent === 'quality') {
+    return [
+      createExercise(
+        'Progressive strides',
+        '4 x 20 sec',
+        'Build smoothly so the first fast rep never feels abrupt.',
+      ),
+      createExercise(
+        'Quality run set',
+        `4-6 x 2 min strong / 2 min easy jog`,
+        'Keep the fast work technically smooth instead of chasing top speed.',
+      ),
+      createExercise(
+        'Hill repeats',
+        '6-8 x 30-45 sec uphill',
+        'Stay tall and punch the ground, but never turn the hill into a sprint.',
+      ),
+    ]
+  }
+
+  if (intent === 'recovery') {
+    return [
+      createExercise(
+        'Easy recovery jog',
+        `${mainMinutes} min`,
+        'Stay nasal-breathing easy or switch to run-walk whenever needed.',
+      ),
+      createExercise(
+        'Easy run-walk',
+        `${mainMinutes} min`,
+        'Stay fully conversational and insert walk breaks any time the stride gets heavy.',
+      ),
+      createExercise(
+        'Brisk walk',
+        `${mainMinutes} min`,
+        'Use the walk as a true downshift and keep every breath relaxed.',
+      ),
+    ]
+  }
+
+  return [
+    createExercise(
+      'Steady aerobic run',
+      `${mainMinutes} min`,
+      'Sit in a smooth aerobic groove that you could repeat tomorrow.',
+    ),
+    createExercise(
+      'Easy run-walk',
+      `${mainMinutes} min`,
+      'Use this if you want the aerobic effect without making the session feel too costly.',
+    ),
+    createExercise(
+      'Controlled tempo fragments',
+      `4 x ${Math.max(3, Math.round(mainMinutes / 4))} min`,
+      'Keep the work comfortably hard rather than racing the pace.',
+    ),
+  ]
+}
+
+function buildBikeVariationOptions(
+  intent: ExerciseIntent,
+  duration: number,
+) {
+  const mainMinutes = getExerciseMainMinutes(duration)
+
+  if (intent === 'warmup') {
+    return [
+      createExercise(
+        'Easy spin warm-up',
+        '8 min',
+        'Bring heart rate up gradually and keep torque low.',
+      ),
+      createExercise(
+        'Progressive spin-up',
+        '3 x 1 min',
+        'Lift cadence each minute while keeping effort easy.',
+      ),
+      createExercise(
+        'Cadence spin-ups',
+        '3 x 20 sec',
+        'Prime the nervous system before the harder set begins.',
+      ),
+    ]
+  }
+
+  if (intent === 'quality') {
+    return [
+      createExercise(
+        'Quality interval set',
+        '5 x 3 min strong / 3 min easy',
+        'Stay technically clean and resist the urge to sprint early.',
+      ),
+      createExercise(
+        'Torque intervals',
+        '4 x 4 min controlled torque / full easy recovery',
+        'Stay seated and keep every rep muscular, not maximal.',
+      ),
+      createExercise(
+        'Seated accelerations',
+        '3 x 30 sec',
+        'Build pressure smoothly without spiking tension.',
+      ),
+    ]
+  }
+
+  if (intent === 'recovery') {
+    return [
+      createExercise(
+        'Recovery ride',
+        `${mainMinutes} min`,
+        'Stay seated, keep torque low, and avoid every urge to push the pace.',
+      ),
+      createExercise(
+        'Easy aerobic spin',
+        `${mainMinutes} min`,
+        'Stay in a gear that keeps the legs feeling loose.',
+      ),
+      createExercise(
+        'Easy endurance ride',
+        `${mainMinutes} min`,
+        'Support the day with aerobic work that stays clearly easy.',
+      ),
+    ]
+  }
+
+  return [
+    createExercise(
+      'Endurance ride block',
+      `${mainMinutes} min steady aerobic riding`,
+      'Aim for smooth pressure through the whole pedal circle.',
+    ),
+    createExercise(
+      'Easy aerobic spin',
+      `${mainMinutes} min`,
+      'Stay smooth and let the bike loosen the legs rather than load them.',
+    ),
+    createExercise(
+      'Bike aerobic ladder',
+      `3 x ${Math.max(5, Math.round(mainMinutes / 3))} min steady / 90 sec easy`,
+      'Use the short resets to keep the whole block relaxed and repeatable.',
+    ),
+  ]
+}
+
+function buildGenericCardioVariationOptions(
+  family: string,
+  intent: ExerciseIntent,
+  duration: number,
+) {
+  const mainMinutes = getExerciseMainMinutes(duration)
+
+  if (family === 'row') {
+    if (intent === 'warmup') {
+      return [
+        createExercise(
+          'Rower or bike warm-up',
+          '5-8 min',
+          'Bring temperature up without adding fatigue.',
+        ),
+        createExercise(
+          'Bike erg warm-up',
+          '8 min',
+          'Ease into a rhythm before the circuit begins.',
+        ),
+      ]
+    }
+
+    if (intent === 'quality') {
+      return [
+        createExercise(
+          'Rower or bike intervals',
+          '5 x 60 sec controlled hard / 90 sec easy',
+          'Use quality reps, not desperate ones.',
+        ),
+        createExercise(
+          'Row or brisk walk block',
+          `3 x ${Math.max(4, Math.round(mainMinutes / 3))} min`,
+          'Use steady chunks of cardio to anchor the main work.',
+        ),
+      ]
+    }
+
+    return [
+      createExercise(
+        'Easy row or bike',
+        `${mainMinutes} min`,
+        'Move enough to loosen up, not enough to feel trained.',
+      ),
+      createExercise(
+        'Easy cardio block',
+        `${mainMinutes} min`,
+        'Use a pace that feels repeatable even on a tired day.',
+      ),
+    ]
+  }
+
+  if (family === 'walk') {
+    return [
+      createExercise(
+        'Brisk walk warm-up',
+        '5-8 min',
+        'Walk until breathing settles and cadence feels natural.',
+      ),
+      createExercise(
+        'Nasal-breathing walk',
+        `${mainMinutes} min`,
+        'Stay relaxed and let the breath control the pace.',
+      ),
+      createExercise(
+        'Incline treadmill walk',
+        `${mainMinutes} min`,
+        'Keep the effort steady and let the incline do the work instead of the pace.',
+      ),
+    ]
+  }
+
+  if (family === 'jump-rope') {
+    if (intent === 'quality') {
+      return [
+        createExercise(
+          'Fast-feet rope skip',
+          '4 x 20 sec',
+          'Wake up foot speed and rhythm without fatigue.',
+        ),
+        createExercise(
+          'Jump rope rhythm block',
+          `6 x ${Math.max(45, Math.round(mainMinutes * 10))} sec smooth / 20 sec easy`,
+          'Keep the contacts light and stop before rhythm fades.',
+        ),
+      ]
+    }
+
+    return [
+      createExercise(
+        'Jump rope primer',
+        '5 x 45 sec easy / 15 sec reset',
+        'Land quietly and keep the shoulders soft as rhythm builds.',
+      ),
+      createExercise(
+        'Jump rope or easy bike',
+        '5 min',
+        'Open the session with light elastic work or easy spin.',
+      ),
+    ]
+  }
+
+  return [
+    createExercise(
+      'Easy cardio opener',
+      '5-8 min',
+      'Walk, bike, or rope skip at an easy effort.',
+    ),
+    createExercise(
+      'Easy flush',
+      `${mainMinutes} min`,
+      'Finish with light cyclical work if it helps you feel better.',
+    ),
+  ]
+}
+
+function buildDrillVariationOptions(input: WorkoutGeneratorInput) {
+  if (input.mode === 'bike') {
+    return [
+      createExercise(
+        'Cadence builds',
+        '3 x 30 sec',
+        'Use quick but relaxed spin-ups to smooth the pedal stroke.',
+      ),
+      createExercise(
+        'High-cadence spin-up',
+        '3 x 20 sec',
+        'Optional rhythm touch only if the legs feel good.',
+      ),
+      createExercise(
+        'Progressive spin-up',
+        '3 x 1 min',
+        'Lift cadence each minute while keeping effort easy.',
+      ),
+    ]
+  }
+
+  return [
+    createExercise(
+      'A-skip march',
+      '2 x 20 m',
+      'Prime rhythm and posture before the aerobic work starts.',
+    ),
+    createExercise(
+      'Drill series',
+      'A-skip, B-skip, high knees x 2 rounds',
+      'Use drills to lift posture and cadence before the faster work.',
+    ),
+    createExercise(
+      'Hill march + skips',
+      '2 rounds on a short hill',
+      'Use posture and knee drive to prep for uphill work.',
+    ),
+    createExercise(
+      'Mobility and tissue prep',
+      '5-8 min',
+      'Use smooth prep work if the day needs less impact and more rhythm.',
+    ),
+  ]
+}
+
+function buildHomeSquatVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomeLowerStrengthExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      'Tempo split squat',
+      '3 x 8 each leg',
+      'Use a slow lower and brief pause so the set stays honest without heavy load.',
+    ),
+    createExercise(
+      'Step-up',
+      '3 x 10 each leg',
+      'Drive through the whole foot and keep the down phase controlled.',
+    ),
+    createExercise(
+      'Wall sit',
+      '3 x 30-45 sec',
+      'Use it when you want leg work without needing more setup.',
+    ),
+  ])
+}
+
+function buildHomeHingeVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomeHingeExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      'Hamstring walkout',
+      '3 x 6',
+      'Keep the hips lifted and let the hamstrings do the work slowly.',
+    ),
+    createExercise(
+      'Single-leg glute bridge',
+      '3 x 8 each side',
+      'Use the top pause to own hip extension without extra load.',
+    ),
+  ])
+}
+
+function buildHomePushVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomePushExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      'Tempo push-up',
+      '3 x 6-8',
+      'Lower slowly and keep the trunk quiet throughout each rep.',
+    ),
+    createExercise(
+      'Incline push-up',
+      '3 x 8-10',
+      'Use a stable surface and keep the position crisp rather than grinding.',
+    ),
+  ])
+}
+
+function buildHomePullVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomePullExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      'Prone swimmer',
+      '3 x 8',
+      'Use slow reps to wake up the upper back when equipment is limited.',
+    ),
+    createExercise(
+      'Towel row ISO',
+      '3 x 20 sec',
+      'Use a sturdy anchor only if it feels secure, otherwise skip this option.',
+    ),
+  ])
+}
+
+function buildHomeCarryVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomeCoreExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      'Suitcase carry',
+      '3 x 20 m each side',
+      'Walk tall and let the trunk resist the urge to lean.',
+    ),
+    createExercise(
+      'Suitcase march',
+      '3 x 20 steps each side',
+      'Move slowly so the load challenges posture instead of balance alone.',
+    ),
+  ])
+}
+
+function buildHomeMobilityVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomeMobilityExercise(homeEquipment, customHomeEquipment),
+    createHomeRecoverySupportExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      '90/90 hip flow',
+      '2 rounds',
+      'Move slowly through the hips and let the breath stay easy.',
+    ),
+  ])
+}
+
+function buildHomePowerVariationOptions(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  return dedupeExerciseOptions([
+    createHomePowerExercise(homeEquipment, customHomeEquipment),
+    createExercise(
+      'Lateral bounds',
+      '3 x 5 each side',
+      'Stay crisp and stick each landing.',
+    ),
+    createExercise(
+      'Squat jump to stick',
+      '4 x 4',
+      'Land softly and own the position before taking the next jump.',
+    ),
+  ])
+}
+
+function buildNonHomeStrengthVariationOptions(family: string) {
+  switch (family) {
+    case 'squat':
+      return [
+        createExercise(
+          'Rear-foot-elevated split squat',
+          '3 x 8 each leg',
+          'Lead with single-leg strength before fatigue builds.',
+        ),
+        createExercise(
+          'Goblet squat',
+          '3 x 10',
+          'Keep reps smooth and leave a little in reserve.',
+        ),
+        createExercise(
+          'Walking lunge',
+          '3 x 8 each leg',
+          'Simple unilateral strength that carries into most sports.',
+        ),
+        createExercise(
+          'Step-up',
+          '3 x 10 each leg',
+          'Drive through the whole foot and stay controlled on the way down.',
+        ),
+      ]
+    case 'hinge':
+      return [
+        createExercise(
+          'Dumbbell Romanian deadlift',
+          '3 x 8-10',
+          'Build hinge strength without turning the session into a grind.',
+        ),
+        createExercise(
+          'Kettlebell deadlift',
+          '3 x 10',
+          'Keep the hinge pattern smooth and sustainable.',
+        ),
+        createExercise(
+          'Glute bridge',
+          '3 x 10-12',
+          'Use it when you want hip extension without much setup or fatigue.',
+        ),
+        createExercise(
+          'Hamstring slider curl',
+          '2 x 10',
+          'Add posterior-chain support without big equipment demands.',
+        ),
+      ]
+    case 'push':
+      return [
+        createExercise(
+          'Push-up or dumbbell floor press',
+          '3 x 8',
+          'Keep reps smooth and positions honest.',
+        ),
+        createExercise(
+          'Dumbbell bench or landmine press',
+          '3 x 6-8',
+          'Press hard without turning the set into a grind.',
+        ),
+        createExercise(
+          'Incline push-up',
+          '3 x 8-10',
+          'Use it when you want a cleaner pressing pattern with lower cost.',
+        ),
+        createExercise(
+          'Incline plyo push-up',
+          '3 x 5',
+          'Keep it snappy and stop when speed fades.',
+        ),
+      ]
+    case 'pull':
+      return [
+        createExercise(
+          'Chest-supported row',
+          '3 x 10',
+          'Give the upper back some work without frying grip or low back.',
+        ),
+        createExercise(
+          'Band or suspension row',
+          '3 x 10',
+          'Balance the shoulders and upper back.',
+        ),
+        createExercise(
+          'Bench-supported one-arm row',
+          '3 x 8 each side',
+          'Set the torso first, then drive the elbow without twisting.',
+        ),
+        createExercise(
+          'Prone swimmer',
+          '3 x 8',
+          'Use slow reps to wake up the upper back when you want a lighter option.',
+        ),
+      ]
+    case 'carry':
+      return [
+        createExercise(
+          'Farmer carry',
+          '3 x 30 m',
+          'Finish with posture and trunk stiffness.',
+        ),
+        createExercise(
+          'Suitcase carry',
+          '3 x 20 m each side',
+          'Make the trunk and posture work a little harder.',
+        ),
+        createExercise(
+          'Suitcase march',
+          '3 x 20 steps each side',
+          'Slow the tempo down so every step challenges balance and position.',
+        ),
+      ]
+    case 'core':
+      return [
+        createExercise(
+          'Dead bug',
+          '2-3 x 8 each side',
+          'Keep the trunk quiet so the sport-specific work can stay efficient.',
+        ),
+        createExercise(
+          'Side plank',
+          '2 x 20-30 sec each side',
+          'Build lateral trunk stiffness without much fatigue cost.',
+        ),
+        createExercise(
+          'Pallof press',
+          '2 x 10 each side',
+          'Use the exhale to keep the ribcage stacked while the band pulls sideways.',
+        ),
+        createExercise(
+          'Bear crawl',
+          '3 x 20 m',
+          'Finish with trunk and shoulder integration.',
+        ),
+      ]
+    case 'mobility':
+      return [
+        createExercise(
+          'Mobility flow',
+          '2 rounds',
+          'Move through hips, ankles, thoracic spine, and shoulders.',
+        ),
+        createExercise(
+          "World's greatest stretch",
+          '2 rounds',
+          'Open the hips, hamstrings, and thoracic spine.',
+        ),
+        createExercise(
+          'Cat-camel + thoracic rotation',
+          '2 rounds',
+          'Restore spinal movement before the flow begins.',
+        ),
+        createExercise(
+          'Thoracic rotation flow',
+          '2 rounds',
+          'Use easy movement to restore rotation before the next training block.',
+        ),
+      ]
+    case 'power':
+      return [
+        createExercise(
+          'Medicine-ball slam',
+          '4 x 6',
+          'Drive power down and recover fully.',
+        ),
+        createExercise(
+          'Lateral bounds',
+          '3 x 5 each side',
+          'Stay crisp and stick each landing.',
+        ),
+        createExercise(
+          'Kettlebell swing',
+          '4 x 8',
+          'Drive the hinge sharply, then reset every rep.',
+        ),
+        createExercise(
+          'Explosive step-up',
+          '3 x 6 each leg',
+          'Move fast up and stay controlled down.',
+        ),
+      ]
+    default:
+      return []
+  }
+}
+
+function buildExerciseVariationOptions(
+  input: WorkoutGeneratorInput,
+  suggestion: WorkoutSuggestion,
+  exercise: WorkoutExerciseSuggestion,
+) {
+  const movementFamily = getExerciseMovementFamily(exercise)
+  const intent = getExerciseIntent(exercise)
+  const fallbackOptions = movementFamily
+    ? [createMovementVariation(movementFamily, exercise)]
+    : []
+
+  if (input.mode === 'home') {
+    switch (movementFamily) {
+      case 'row':
+      case 'bike':
+      case 'run':
+      case 'walk':
+      case 'jump-rope':
+        return dedupeExerciseOptions([
+          exercise,
+          ...(intent === 'quality'
+            ? buildHomeIntervalVariationOptions(
+                input.goal,
+                getExerciseMainMinutes(suggestion.duration),
+                getReadiness({
+                  ...input,
+                  availableMinutes: normalizeDuration(input.availableMinutes),
+                }),
+                input.homeEquipment,
+                input.customHomeEquipment,
+              )
+            : intent === 'warmup'
+              ? buildHomeWarmupVariationOptions(
+                  input.homeEquipment,
+                  input.customHomeEquipment,
+                )
+              : buildHomeAerobicVariationOptions(
+                  getExerciseMainMinutes(suggestion.duration),
+                  intent === 'steady' ? 'steady' : 'easy',
+                  input.homeEquipment,
+                  input.customHomeEquipment,
+                )),
+          ...fallbackOptions,
+        ])
+      case 'drill':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomeWarmupVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...buildDrillVariationOptions(input),
+        ])
+      case 'squat':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomeSquatVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      case 'hinge':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomeHingeVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      case 'push':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomePushVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      case 'pull':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomePullVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      case 'carry':
+      case 'core':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomeCarryVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      case 'mobility':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomeMobilityVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      case 'power':
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomePowerVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+      default:
+        return dedupeExerciseOptions([
+          exercise,
+          ...buildHomeMobilityVariationOptions(
+            input.homeEquipment,
+            input.customHomeEquipment,
+          ),
+          ...fallbackOptions,
+        ])
+    }
+  }
+
+  switch (movementFamily) {
+    case 'run':
+      return dedupeExerciseOptions([
+        exercise,
+        ...buildRunVariationOptions(intent, suggestion.duration),
+        ...fallbackOptions,
+      ])
+    case 'bike':
+      return dedupeExerciseOptions([
+        exercise,
+        ...buildBikeVariationOptions(intent, suggestion.duration),
+        ...fallbackOptions,
+      ])
+    case 'row':
+    case 'walk':
+    case 'jump-rope':
+      return dedupeExerciseOptions([
+        exercise,
+        ...buildGenericCardioVariationOptions(
+          movementFamily,
+          intent,
+          suggestion.duration,
+        ),
+        ...fallbackOptions,
+      ])
+    case 'drill':
+      return dedupeExerciseOptions([
+        exercise,
+        ...buildDrillVariationOptions(input),
+        ...fallbackOptions,
+      ])
+    case 'squat':
+    case 'hinge':
+    case 'push':
+    case 'pull':
+    case 'carry':
+    case 'core':
+    case 'mobility':
+    case 'power':
+      return dedupeExerciseOptions([
+        exercise,
+        ...buildNonHomeStrengthVariationOptions(movementFamily),
+        ...fallbackOptions,
+      ])
+    default:
+      return dedupeExerciseOptions([exercise, ...fallbackOptions])
+  }
+}
+
+function getNextExerciseVariation(
+  options: WorkoutExerciseSuggestion[],
+  currentExercise: WorkoutExerciseSuggestion,
+  previousExercise: WorkoutExerciseSuggestion | undefined,
+  nextExercise: WorkoutExerciseSuggestion | undefined,
+) {
+  const uniqueOptions = dedupeExerciseOptions(options)
+
+  if (uniqueOptions.length < 2) {
+    return currentExercise
+  }
+
+  const currentIndex = uniqueOptions.findIndex((option) =>
+    isSameExercise(option, currentExercise),
+  )
+
+  for (let offset = 1; offset <= uniqueOptions.length; offset += 1) {
+    const candidate =
+      uniqueOptions[
+        ((currentIndex === -1 ? -1 : currentIndex) + offset + uniqueOptions.length) %
+          uniqueOptions.length
+      ]
+
+    if (isSameExercise(candidate, currentExercise)) {
+      continue
+    }
+
+    if (hasConflictingRepeat(previousExercise, candidate)) {
+      continue
+    }
+
+    if (nextExercise && hasConflictingRepeat(candidate, nextExercise)) {
+      continue
+    }
+
+    return candidate
+  }
+
+  return currentExercise
+}
+
+export function swapWorkoutSuggestionExercise(
+  input: WorkoutGeneratorInput,
+  suggestion: WorkoutSuggestion,
+  exerciseIndex: number,
+): WorkoutSuggestion {
+  const currentExercise = suggestion.exercises[exerciseIndex]
+
+  if (!currentExercise) {
+    return suggestion
+  }
+
+  const previousExercise =
+    exerciseIndex > 0 ? suggestion.exercises[exerciseIndex - 1] : undefined
+  const nextExercise =
+    exerciseIndex < suggestion.exercises.length - 1
+      ? suggestion.exercises[exerciseIndex + 1]
+      : undefined
+  const variation = getNextExerciseVariation(
+    buildExerciseVariationOptions(input, suggestion, currentExercise),
+    currentExercise,
+    previousExercise,
+    nextExercise,
+  )
+
+  if (isSameExercise(variation, currentExercise)) {
+    return suggestion
+  }
+
+  const nextExercises = suggestion.exercises.map((exercise, index) =>
+    index === exerciseIndex ? variation : exercise,
+  )
+
+  return {
+    ...suggestion,
+    exercises: dedupeAdjacentExercises(nextExercises),
+  }
+}
+
+export function createWorkoutSuggestionVariation(
+  input: WorkoutGeneratorInput,
+  suggestion: WorkoutSuggestion,
+): WorkoutSuggestion {
+  let remixedSuggestion = suggestion
+
+  for (let exerciseIndex = 0; exerciseIndex < suggestion.exercises.length; exerciseIndex += 1) {
+    remixedSuggestion = swapWorkoutSuggestionExercise(
+      input,
+      remixedSuggestion,
+      exerciseIndex,
+    )
+  }
+
+  return remixedSuggestion
 }
 
 function buildWorkoutExercises(

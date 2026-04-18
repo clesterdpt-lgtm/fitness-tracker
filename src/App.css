@@ -1310,6 +1310,11 @@
   gap: 0.8rem;
 }
 
+.generator-card-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .generator-card-section-title {
   margin: 0;
   color: var(--muted-strong);
@@ -1359,6 +1364,16 @@
   margin: 0;
   color: var(--muted-strong);
   font-size: 0.94rem;
+}
+
+.generator-exercise-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.generator-inline-action {
+  padding-inline: 0.9rem;
+  white-space: nowrap;
 }
 
 .generator-block-list {
