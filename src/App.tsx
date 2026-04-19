@@ -1066,6 +1066,26 @@ function isDefaultCoachConfigActive(coachConfig: CoachConfig) {
   )
 }
 
+function getEffectiveCoachTimeoutMs(coachConfig: CoachConfig) {
+  const endpointUrl = coachConfig.endpointUrl.trim()
+
+  if (!endpointUrl) {
+    return coachConfig.requestTimeoutMs
+  }
+
+  try {
+    const parsedUrl = new URL(endpointUrl)
+    const isLocalCoachEndpoint =
+      parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1'
+
+    return isLocalCoachEndpoint
+      ? Math.max(coachConfig.requestTimeoutMs, DOCKER_COACH_PRESET.requestTimeoutMs)
+      : coachConfig.requestTimeoutMs
+  } catch {
+    return coachConfig.requestTimeoutMs
+  }
+}
+
 function getTotalHomeEquipmentCount(
   homeEquipment: HomeEquipmentId[],
   customHomeEquipment: CustomHomeEquipment[],
@@ -5274,10 +5294,11 @@ function App() {
       nutritionTargets,
       equipmentSummary: homeEquipmentSummary,
     })
+    const effectiveCoachTimeoutMs = getEffectiveCoachTimeoutMs(coachConfig)
 
     coachRequestAbortRef.current?.abort()
     const controller = new AbortController()
-    const timeoutId = window.setTimeout(() => controller.abort(), coachConfig.requestTimeoutMs)
+    const timeoutId = window.setTimeout(() => controller.abort(), effectiveCoachTimeoutMs)
     const requestId = coachRequestIdRef.current + 1
     coachRequestIdRef.current = requestId
     coachRequestAbortRef.current = controller
@@ -5323,7 +5344,7 @@ function App() {
       const errorMessage =
         error instanceof DOMException && error.name === 'AbortError'
           ? `${coachConfig.assistantName} timed out after ${Math.round(
-              coachConfig.requestTimeoutMs / 1_000,
+              effectiveCoachTimeoutMs / 1_000,
             )} seconds.`
           : `Something went wrong while calling ${coachConfig.assistantName}.`
 
