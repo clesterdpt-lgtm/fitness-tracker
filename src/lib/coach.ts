@@ -130,7 +130,7 @@ export type CoachContext = {
   guidelines: string[]
 }
 
-export type CoachPlanSource = 'openclaw' | 'fallback'
+export type CoachPlanSource = 'api' | 'fallback'
 
 export type CoachPlanResult = {
   source: CoachPlanSource
@@ -171,7 +171,7 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
 }
 
 export const DEFAULT_COACH_CONFIG: CoachConfig = {
-  assistantName: 'OpenClaw Coach',
+  assistantName: 'OpenAI Coach',
   endpointUrl: '',
   requestTimeoutMs: 15_000,
 }
@@ -781,7 +781,7 @@ export function createFallbackCoachPlan(
     warnings: endpointConfigured
       ? []
       : [
-          'No external OpenClaw endpoint is configured yet, so this overlay is using the built-in coaching fallback.',
+          'No external API coach endpoint is configured yet, so this overlay is using the built-in coaching fallback.',
         ],
   }
 }
@@ -1006,7 +1006,7 @@ function normalizeCoachPlanResult(
   const warnings = readStringArray(payload.warnings)
 
   return {
-    source: 'openclaw',
+    source: 'api',
     coachName: readString(payload.coachName, fallback.coachName),
     generatedAt: readString(payload.generatedAt, new Date().toISOString()),
     plan: mergePlan(planPayload, fallback.plan),

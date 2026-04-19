@@ -5,26 +5,28 @@ const HOST = process.env.HOST?.trim() || '0.0.0.0'
 const COACH_PATH = process.env.COACH_PATH?.trim() || '/coach'
 const HEALTH_PATH = process.env.HEALTH_PATH?.trim() || '/health'
 const ALLOWED_ORIGIN = process.env.COACH_ALLOWED_ORIGIN?.trim() || '*'
-const EXPLICIT_MODE = process.env.OPENCLAW_MODE?.trim().toLowerCase() || ''
-const UPSTREAM_URL = process.env.OPENCLAW_UPSTREAM_URL?.trim() || ''
-const UPSTREAM_AUTH_HEADER =
-  process.env.OPENCLAW_UPSTREAM_AUTH_HEADER?.trim() || 'Authorization'
-const UPSTREAM_AUTH_TOKEN = process.env.OPENCLAW_UPSTREAM_AUTH_TOKEN?.trim() || ''
-const RAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL?.trim() || ''
-const GATEWAY_URL = RAW_GATEWAY_URL || 'http://127.0.0.1:18789/v1/responses'
-const GATEWAY_AUTH_HEADER =
-  process.env.OPENCLAW_GATEWAY_AUTH_HEADER?.trim() || 'Authorization'
-const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN?.trim() || ''
-const GATEWAY_AGENT_ID = process.env.OPENCLAW_GATEWAY_AGENT_ID?.trim() || ''
-const GATEWAY_BACKEND_MODEL =
-  process.env.OPENCLAW_GATEWAY_BACKEND_MODEL?.trim() ||
-  process.env.OPENCLAW_BACKEND_MODEL?.trim() ||
+const EXPLICIT_MODE =
+  process.env.COACH_PROXY_MODE?.trim().toLowerCase() ||
+  process.env.OPENAI_COACH_MODE?.trim().toLowerCase() ||
   ''
-const GATEWAY_MAX_OUTPUT_TOKENS = parseInteger(
-  process.env.OPENCLAW_GATEWAY_MAX_OUTPUT_TOKENS,
-  1200,
+const UPSTREAM_URL = process.env.COACH_UPSTREAM_URL?.trim() || ''
+const UPSTREAM_AUTH_HEADER =
+  process.env.COACH_UPSTREAM_AUTH_HEADER?.trim() || 'Authorization'
+const UPSTREAM_AUTH_TOKEN = process.env.COACH_UPSTREAM_AUTH_TOKEN?.trim() || ''
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() || ''
+const OPENAI_RESPONSES_URL =
+  process.env.OPENAI_RESPONSES_URL?.trim() || 'https://api.openai.com/v1/responses'
+const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-5.4-mini'
+const OPENAI_MAX_OUTPUT_TOKENS = parseInteger(
+  process.env.OPENAI_MAX_OUTPUT_TOKENS,
+  1400,
 )
-const COACH_NAME = process.env.COACH_NAME?.trim() || 'OpenClaw Proxy Coach'
+const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION?.trim() || ''
+const OPENAI_PROJECT = process.env.OPENAI_PROJECT?.trim() || ''
+const OPENAI_REASONING_EFFORT = normalizeReasoningEffort(
+  process.env.OPENAI_REASONING_EFFORT?.trim().toLowerCase() || '',
+)
+const COACH_NAME = process.env.COACH_NAME?.trim() || 'OpenAI Coach'
 const MODE = resolveMode()
 
 function parseInteger(value, fallback) {
@@ -46,17 +48,12 @@ function resolveMode() {
 
   if (EXPLICIT_MODE) {
     console.warn(
-      `Ignoring unsupported OPENCLAW_MODE="${EXPLICIT_MODE}". Falling back to automatic mode selection.`,
+      `Ignoring unsupported COACH_PROXY_MODE="${EXPLICIT_MODE}". Falling back to automatic mode selection.`,
     )
   }
 
-  if (
-    RAW_GATEWAY_URL ||
-    GATEWAY_TOKEN ||
-    GATEWAY_AGENT_ID ||
-    GATEWAY_BACKEND_MODEL
-  ) {
-    return 'gateway'
+  if (OPENAI_API_KEY) {
+    return 'openai'
   }
 
   if (UPSTREAM_URL) {
@@ -75,7 +72,21 @@ function normalizeMode(value) {
     return 'upstream'
   }
 
-  if (value === 'mock' || value === 'gateway' || value === 'upstream') {
+  if (value === 'mock' || value === 'openai' || value === 'upstream') {
+    return value
+  }
+
+  return ''
+}
+
+function normalizeReasoningEffort(value) {
+  if (
+    value === 'minimal' ||
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh'
+  ) {
     return value
   }
 
@@ -88,10 +99,6 @@ function formatBearerToken(token) {
   }
 
   return /^Bearer\s+/i.test(token) ? token : `Bearer ${token}`
-}
-
-function getGatewayModelId() {
-  return GATEWAY_AGENT_ID ? `openclaw/${GATEWAY_AGENT_ID}` : 'openclaw/default'
 }
 
 function setCorsHeaders(response) {
@@ -240,7 +247,7 @@ function buildMockCoachResponse(requestBody) {
       detail: context.basePlan.detail,
       adjustments: [
         ...(context.basePlan.adjustments ?? []),
-        'This response is coming from the local proxy mock. Use `OPENCLAW_MODE=gateway` for the OpenClaw Gateway or `OPENCLAW_UPSTREAM_URL` for a custom upstream adapter.',
+        'This response is coming from the local proxy mock. Add an `OPENAI_API_KEY` to use the OpenAI-backed coach or `COACH_UPSTREAM_URL` for a custom upstream adapter.',
       ],
     },
     insights,
@@ -257,7 +264,7 @@ function buildMockCoachResponse(requestBody) {
         ? 'The week is already fairly full, so make today repeatable rather than maximal.'
         : 'There is still room in the week, so use today to build momentum without overshooting the next session.',
     warnings: [
-      'No upstream OpenClaw URL is configured, so the proxy returned a mock coaching response built from the local generator context.',
+      'No OpenAI API key or custom upstream URL is configured, so the proxy returned a mock coaching response built from the local generator context.',
     ],
   }
 }
@@ -266,18 +273,29 @@ function buildUpstreamPayload(requestBody) {
   return requestBody
 }
 
-function buildGatewayPayload(requestBody) {
-  return {
-    model: getGatewayModelId(),
-    instructions: buildGatewayInstructions(),
-    input: buildGatewayInput(requestBody),
-    max_output_tokens: GATEWAY_MAX_OUTPUT_TOKENS,
-    temperature: 0,
-    top_p: 0.1,
+function buildOpenAIPayload(requestBody) {
+  const payload = {
+    model: OPENAI_MODEL,
+    instructions: buildOpenAIInstructions(),
+    input: buildOpenAIInput(requestBody),
+    max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+    text: {
+      format: {
+        type: 'json_object',
+      },
+    },
   }
+
+  if (OPENAI_REASONING_EFFORT) {
+    payload.reasoning = {
+      effort: OPENAI_REASONING_EFFORT,
+    }
+  }
+
+  return payload
 }
 
-function buildGatewayInstructions() {
+function buildOpenAIInstructions() {
   return [
     'You are the coaching layer for a fitness tracker app.',
     `Return exactly one JSON object and nothing else. Use "${COACH_NAME}" as coachName unless the request context specifies a better display name.`,
@@ -300,24 +318,13 @@ function buildGatewayInstructions() {
   ].join('\n')
 }
 
-function buildGatewayInput(requestBody) {
-  return [
-    {
-      type: 'message',
-      role: 'user',
-      content: [
-        {
-          type: 'input_text',
-          text: buildGatewayPrompt(requestBody),
-        },
-      ],
-    },
-  ]
+function buildOpenAIInput(requestBody) {
+  return buildOpenAIPrompt(requestBody)
 }
 
-function buildGatewayPrompt(requestBody) {
+function buildOpenAIPrompt(requestBody) {
   const { context } = requestBody
-  const compactContext = buildCompactGatewayContext(context)
+  const compactContext = buildCompactContext(context)
 
   return [
     'Generate a coaching response for this workout request.',
@@ -327,7 +334,7 @@ function buildGatewayPrompt(requestBody) {
   ].join('\n')
 }
 
-function buildCompactGatewayContext(context) {
+function buildCompactContext(context) {
   const suggestions = Array.isArray(context?.basePlan?.suggestions)
     ? context.basePlan.suggestions.slice(0, 3).map((suggestion) => ({
         id: suggestion?.id,
@@ -429,8 +436,8 @@ function normalizeUpstreamResponse(upstreamJson, requestBody) {
   return {
     ...buildMockCoachResponse(requestBody),
     warnings: [
-      MODE === 'gateway'
-        ? 'The OpenClaw Gateway responded, but it did not return the expected coach JSON contract. The proxy fell back to a mock coaching response.'
+      MODE === 'openai'
+        ? 'The OpenAI API responded, but it did not return the expected coach JSON contract. The proxy fell back to a mock coaching response.'
         : 'The upstream service responded, but it did not return the expected JSON contract. The proxy fell back to a mock coaching response.',
     ],
   }
@@ -508,27 +515,24 @@ function extractErrorMessage(responseText, responseJson) {
   return trimmed.slice(0, 300)
 }
 
-async function callGateway(requestBody) {
+async function callOpenAI(requestBody) {
   const headers = {
     'Content-Type': 'application/json',
+    Authorization: formatBearerToken(OPENAI_API_KEY),
   }
 
-  if (GATEWAY_TOKEN) {
-    headers[GATEWAY_AUTH_HEADER] = formatBearerToken(GATEWAY_TOKEN)
+  if (OPENAI_ORGANIZATION) {
+    headers['OpenAI-Organization'] = OPENAI_ORGANIZATION
   }
 
-  if (GATEWAY_AGENT_ID) {
-    headers['x-openclaw-agent-id'] = GATEWAY_AGENT_ID
+  if (OPENAI_PROJECT) {
+    headers['OpenAI-Project'] = OPENAI_PROJECT
   }
 
-  if (GATEWAY_BACKEND_MODEL) {
-    headers['x-openclaw-model'] = GATEWAY_BACKEND_MODEL
-  }
-
-  const upstreamResponse = await fetch(GATEWAY_URL, {
+  const upstreamResponse = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST',
     headers,
-    body: JSON.stringify(buildGatewayPayload(requestBody)),
+    body: JSON.stringify(buildOpenAIPayload(requestBody)),
   })
 
   const responseText = await upstreamResponse.text()
@@ -536,7 +540,7 @@ async function callGateway(requestBody) {
 
   if (!upstreamResponse.ok) {
     throw new Error(
-      `Gateway request failed with ${upstreamResponse.status}: ${extractErrorMessage(
+      `OpenAI request failed with ${upstreamResponse.status}: ${extractErrorMessage(
         responseText,
         responseJson,
       )}`,
@@ -578,9 +582,9 @@ async function callGenericUpstream(requestBody) {
   return normalizeUpstreamResponse(responseJson, requestBody)
 }
 
-async function callOpenClaw(requestBody) {
-  if (MODE === 'gateway') {
-    return callGateway(requestBody)
+async function callCoachProvider(requestBody) {
+  if (MODE === 'openai') {
+    return callOpenAI(requestBody)
   }
 
   if (MODE === 'upstream') {
@@ -604,10 +608,12 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         mode: MODE,
         upstreamUrlConfigured: Boolean(UPSTREAM_URL),
-        gatewayUrlConfigured: Boolean(RAW_GATEWAY_URL),
-        gatewayTokenConfigured: Boolean(GATEWAY_TOKEN),
-        gatewayAgentId: GATEWAY_AGENT_ID || 'default',
-        gatewayBackendModelConfigured: Boolean(GATEWAY_BACKEND_MODEL),
+        openaiConfigured: Boolean(OPENAI_API_KEY),
+        openaiResponsesUrl: OPENAI_RESPONSES_URL,
+        openaiModel: OPENAI_MODEL,
+        openaiReasoningEffort: OPENAI_REASONING_EFFORT || null,
+        openaiProjectConfigured: Boolean(OPENAI_PROJECT),
+        openaiOrganizationConfigured: Boolean(OPENAI_ORGANIZATION),
         coachPath: COACH_PATH,
       })
       return
@@ -624,7 +630,7 @@ const server = http.createServer(async (request, response) => {
     const requestBody = await readJsonBody(request)
     validateCoachRequest(requestBody)
 
-    const coachResponse = await callOpenClaw(requestBody)
+    const coachResponse = await callCoachProvider(requestBody)
 
     sendJson(response, 200, coachResponse)
   } catch (error) {
@@ -636,12 +642,12 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   const mode =
-    MODE === 'gateway'
-      ? `gateway mode -> ${GATEWAY_URL} (${getGatewayModelId()})`
+    MODE === 'openai'
+      ? `OpenAI mode -> ${OPENAI_RESPONSES_URL} (${OPENAI_MODEL})`
       : MODE === 'upstream'
         ? `proxying to ${UPSTREAM_URL}`
         : 'mock mode'
 
-  console.log(`OpenClaw proxy listening on http://${HOST}:${PORT}${COACH_PATH} (${mode})`)
+  console.log(`Coach proxy listening on http://${HOST}:${PORT}${COACH_PATH} (${mode})`)
   console.log(`Health check available at http://${HOST}:${PORT}${HEALTH_PATH}`)
 })

@@ -11,10 +11,10 @@ npm run dev
 
 ## Coach integration
 
-The app now supports an OpenClaw-style coaching layer on top of the built-in workout generator.
+The app now supports an API-backed coaching layer on top of the built-in workout generator.
 
 - The existing rules-based generator still calculates readiness and provides the safe fallback plan.
-- OpenClaw can generate a full workout plan or a variation for a selected session option.
+- The coach can generate a full workout plan or a variation for a selected session option.
 - Athlete profile and coach connection settings are stored in browser `localStorage`.
 - If no external endpoint is configured, the app uses a built-in coaching fallback so the feature still works on GitHub Pages.
 
@@ -35,7 +35,7 @@ http://localhost:8787/coach
 What the local proxy does:
 
 - `mock` mode is the default and returns a coach response built from the app's local generator context.
-- `gateway` mode translates the app request into an OpenClaw `POST /v1/responses` call and normalizes the response back into the app's coach contract.
+- `openai` mode translates the app request into an OpenAI `POST /v1/responses` call and normalizes the response back into the app's coach contract.
 - `upstream` mode forwards the request to any custom HTTP service you want to use instead.
 
 The health endpoint shows which mode is active:
@@ -44,73 +44,37 @@ The health endpoint shows which mode is active:
 http://localhost:8787/health
 ```
 
-### OpenClaw Gateway mode
+### OpenAI API mode
 
-If you want to talk directly to a local OpenClaw Gateway, run the proxy like this:
+If you want to use the OpenAI Responses API through the local proxy, run it like this:
 
 ```bash
-OPENCLAW_MODE=gateway \
-OPENCLAW_GATEWAY_URL="http://127.0.0.1:18789/v1/responses" \
-OPENCLAW_GATEWAY_TOKEN="replace-with-your-gateway-token" \
-OPENCLAW_GATEWAY_AGENT_ID="main" \
+OPENAI_API_KEY="replace-with-your-api-key" \
 npm run coach-proxy
 ```
 
-Gateway notes:
+OpenAI mode notes:
 
-- `OPENCLAW_GATEWAY_URL` defaults to `http://127.0.0.1:18789/v1/responses` if you omit it.
-- `OPENCLAW_GATEWAY_TOKEN` is only needed when your gateway uses bearer auth.
-- `OPENCLAW_GATEWAY_AGENT_ID` is optional. If you omit it, the proxy targets `openclaw/default`.
-- `OPENCLAW_GATEWAY_BACKEND_MODEL` is optional if you want to override the agent's backend model with the `x-openclaw-model` header.
-- `OPENCLAW_GATEWAY_MAX_OUTPUT_TOKENS` lets you cap the response budget if needed.
-- The proxy sends a strict JSON-only coaching prompt and extracts the coach payload from the OpenResponses output.
+- `OPENAI_API_KEY` is required for real API calls.
+- `OPENAI_MODEL` defaults to `gpt-5.4-mini`.
+- `OPENAI_RESPONSES_URL` defaults to `https://api.openai.com/v1/responses`.
+- `OPENAI_MAX_OUTPUT_TOKENS` lets you cap the response budget if needed.
+- `OPENAI_REASONING_EFFORT` is optional. Supported values depend on the model you choose.
+- `OPENAI_ORGANIZATION` and `OPENAI_PROJECT` are optional if you need to target a specific org or project.
+- The proxy requests JSON output and then validates the result against the app's expected coach contract.
 
-Your OpenClaw Gateway must have the Responses endpoint enabled before this works.
+The Settings screen includes a `Use local preset` action that fills `http://localhost:8787/coach` and a longer timeout for you.
 
-### Docker OpenClaw mode
-
-If your OpenClaw gateway is already running in Docker, the easiest path is:
-
-```bash
-npm run coach-proxy:docker
-```
-
-That launcher:
-
-- inspects the `openclaw-gateway` container by default
-- reads the published gateway port and gateway token from the container config
-- verifies that the container's `/v1/models` API is reachable
-- starts the existing local coach proxy against the containerized gateway
-
-Then point the app to:
+If you use the `ftcoach` launcher or the background LaunchAgent, store your key in:
 
 ```text
-http://localhost:8787/coach
+~/.config/fitness-tracker-coach.env
 ```
 
-The Settings screen also includes a `Use Docker preset` action that fills this endpoint and a longer timeout for you.
+Example:
 
-Optional overrides:
-
-- `OPENCLAW_DOCKER_CONTAINER` if your container is not named `openclaw-gateway`
-- `OPENCLAW_DOCKER_GATEWAY_HOST` if you do not want to use `127.0.0.1`
-- `OPENCLAW_DOCKER_GATEWAY_PORT` if you want to bypass Docker port inspection
-- `PORT` if you want the local coach proxy to listen somewhere other than `8787`
-
-The Docker gateway still needs the Responses endpoint enabled in its OpenClaw config. In this setup that usually means:
-
-```json
-{
-  "gateway": {
-    "http": {
-      "endpoints": {
-        "responses": {
-          "enabled": true
-        }
-      }
-    }
-  }
-}
+```bash
+cp ~/.config/fitness-tracker-coach.env.example ~/.config/fitness-tracker-coach.env
 ```
 
 ### Custom upstream mode
@@ -118,22 +82,22 @@ The Docker gateway still needs the Responses endpoint enabled in its OpenClaw co
 If you want to keep using your own backend shape, the proxy still supports a generic passthrough mode:
 
 ```bash
-OPENCLAW_MODE=upstream \
-OPENCLAW_UPSTREAM_URL="https://your-openclaw-service.example.com/coach" \
-OPENCLAW_UPSTREAM_AUTH_TOKEN="Bearer replace-me" \
+COACH_PROXY_MODE=upstream \
+COACH_UPSTREAM_URL="https://your-api-coach-service.example.com/coach" \
+COACH_UPSTREAM_AUTH_TOKEN="Bearer replace-me" \
 npm run coach-proxy
 ```
 
-The one place to customize that upstream payload shape is `buildUpstreamPayload()` in [scripts/openclaw-proxy.mjs](/Users/chrislester/Documents/Fitness-tracker/scripts/openclaw-proxy.mjs:229).
+The one place to customize that upstream payload shape is `buildUpstreamPayload()` in [scripts/coach-proxy.mjs](/Users/chrislester/Documents/Fitness-tracker/scripts/coach-proxy.mjs).
 
-If you do not set `OPENCLAW_MODE`, the proxy automatically picks `gateway` when gateway-specific env vars are present, `upstream` when `OPENCLAW_UPSTREAM_URL` is present, and otherwise falls back to `mock`.
+If you do not set `COACH_PROXY_MODE`, the proxy automatically picks `openai` when `OPENAI_API_KEY` is present, `upstream` when `COACH_UPSTREAM_URL` is present, and otherwise falls back to `mock`.
 
 ## Important hosting note
 
 This project is deployed as a static site on GitHub Pages. That means the browser calls any configured coach endpoint directly.
 
 - Do not put private API secrets in this repo or in the browser app.
-- If your OpenClaw agent needs secrets, expose it through your own backend or proxy and point the app at that URL.
+- If your API-backed coach needs secrets, expose it through your own backend or proxy and point the app at that URL.
 - Your endpoint must allow cross-origin requests from the site where this app is hosted.
 
 The included local proxy is a good starting point if you want to host a thin adapter somewhere other than GitHub Pages.
@@ -188,11 +152,11 @@ Notes:
 
 ## Response contract
 
-Your OpenClaw endpoint should return JSON. The easiest shape is:
+Your API coach endpoint should return JSON. The easiest shape is:
 
 ```json
 {
-  "coachName": "OpenClaw Coach",
+  "coachName": "OpenAI Coach",
   "generatedAt": "2026-04-18T20:31:00.000Z",
   "plan": {
     "readiness": {
