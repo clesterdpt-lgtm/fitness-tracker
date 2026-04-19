@@ -98,6 +98,8 @@ function setCorsHeaders(response) {
   response.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
   response.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  response.setHeader('Access-Control-Allow-Private-Network', 'true')
+  response.setHeader('Vary', 'Origin, Access-Control-Request-Headers')
 }
 
 function sendJson(response, statusCode, payload) {
