@@ -282,10 +282,13 @@ function buildGatewayInstructions() {
     'You are the coaching layer for a fitness tracker app.',
     `Return exactly one JSON object and nothing else. Use "${COACH_NAME}" as coachName unless the request context specifies a better display name.`,
     'Do not wrap the response in markdown fences or add commentary before or after the JSON.',
-    'Use the deterministic base plan as the safety guardrail for readiness, duration, load, and effort.',
-    'Never make the session more aggressive than the base plan supports for the current readiness cap.',
+    'Use the deterministic base plan and intensityProfile as hard safety guardrails for readiness, duration, load, and effort.',
+    'Never make the session more aggressive than the suggestionGuardrails support for the current readiness cap.',
     'Respect athlete limitations, available equipment, workout goal, recent training load, recovery status, and nutrition context.',
     'If the context is incomplete or uncertain, stay conservative and explain any caveats in warnings.',
+    'Generate real workout content, not just a paraphrase of the base plan.',
+    'If request.intent is "variation", rewrite the targeted suggestion into a distinct workout variation while keeping the same suggestion id and staying at or below its existing duration, RPE, and estimated load.',
+    'If request.intent is "variation", you may return only the targeted suggestion and let the app merge it into the current plan.',
     'Required top-level keys: coachName, generatedAt, plan, insights, recoveryRecommendations, nutritionRecommendations, weeklyFocus, warnings.',
     'The fields insights, recoveryRecommendations, nutritionRecommendations, and warnings must be JSON arrays of strings, never a single string.',
     'Required plan keys: readiness, headline, detail, adjustments, suggestions.',
@@ -364,6 +367,7 @@ function buildCompactGatewayContext(context) {
     : []
 
   return {
+    request: context?.request,
     athlete: {
       name: context?.athleteProfile?.name,
       trainingAge: context?.athleteProfile?.trainingAge,
@@ -383,6 +387,7 @@ function buildCompactGatewayContext(context) {
       equipment: context?.workoutInput?.equipment,
       equipmentSummary: context?.equipmentSummary,
     },
+    intensityProfile: context?.intensityProfile,
     status: {
       load: context?.metrics?.load,
       recovery: context?.metrics?.recovery,

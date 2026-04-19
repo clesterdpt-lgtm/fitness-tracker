@@ -1,6 +1,7 @@
 import { getNutritionBand, type NutritionEntry, type NutritionTargets } from './nutrition'
 import { getRecoveryBand, type RecoveryEntry } from './recovery'
 import {
+  createWorkoutSuggestionVariation,
   type WorkoutExerciseSuggestion,
   type WorkoutGeneratorInput,
   type WorkoutGeneratorPlan,
@@ -41,6 +42,8 @@ export type CoachConfig = {
   requestTimeoutMs: number
 }
 
+export type CoachRequestIntent = 'full-plan' | 'variation'
+
 type CoachMetricSnapshot = {
   value: string
   label: string
@@ -62,12 +65,57 @@ type CoachNutritionSnapshot = Pick<
   'date' | 'score' | 'calories' | 'protein' | 'hydration' | 'notes'
 >
 
+export type CoachVariationTarget = {
+  suggestionId: WorkoutSuggestion['id']
+  label: string
+  title: string
+  summary: string
+  duration: number
+  rpe: number
+  estimatedLoad: number
+  rationale: string
+  blocks: WorkoutSuggestionBlock[]
+  exercises: WorkoutExerciseSuggestion[]
+}
+
+type CoachRequestContext = {
+  intent: CoachRequestIntent
+  objective: string
+  variationTarget: CoachVariationTarget | null
+}
+
+type CoachIntensityGuardrail = {
+  suggestionId: WorkoutSuggestion['id']
+  label: string
+  maxDuration: number
+  maxRpe: number
+  maxEstimatedLoad: number
+}
+
+type CoachIntensityProfile = {
+  readinessScore: number
+  readinessLabel: string
+  readinessCap: WorkoutReadiness['cap']
+  targetDuration: number
+  maxDuration: number
+  maxRpe: number
+  maxEstimatedLoad: number
+  loadLabel: string
+  recoveryLabel: string
+  nutritionLabel: string
+  weeklySessionCount: number
+  guidance: string[]
+  suggestionGuardrails: CoachIntensityGuardrail[]
+}
+
 export type CoachContext = {
   generatedAt: string
   athleteProfile: AthleteProfile
   athleteSummary: string
   workoutInput: WorkoutGeneratorInput
   equipmentSummary: string
+  request: CoachRequestContext
+  intensityProfile: CoachIntensityProfile
   metrics: {
     load: CoachMetricSnapshot
     recovery: CoachMetricSnapshot
@@ -107,6 +155,8 @@ type BuildCoachContextInput = {
   latestNutritionEntry: NutritionEntry | undefined
   nutritionTargets: NutritionTargets
   equipmentSummary: string
+  requestIntent?: CoachRequestIntent
+  variationTarget?: WorkoutSuggestion | null
 }
 
 export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
@@ -204,6 +254,111 @@ function isReadinessCap(value: unknown): value is WorkoutReadiness['cap'] {
 
 function formatMetricValue(value: number | null, suffix = '') {
   return value === null ? 'Not logged' : `${value}${suffix}`
+}
+
+function getReadinessCapRank(cap: WorkoutReadiness['cap']) {
+  switch (cap) {
+    case 'low':
+      return 0
+    case 'moderate':
+      return 1
+    case 'high':
+      return 2
+  }
+}
+
+function clampReadinessCap(
+  value: WorkoutReadiness['cap'],
+  fallback: WorkoutReadiness['cap'],
+) {
+  return getReadinessCapRank(value) > getReadinessCapRank(fallback) ? fallback : value
+}
+
+function toVariationTarget(
+  suggestion: WorkoutSuggestion | null | undefined,
+): CoachVariationTarget | null {
+  if (!suggestion) {
+    return null
+  }
+
+  return {
+    suggestionId: suggestion.id,
+    label: suggestion.label,
+    title: suggestion.title,
+    summary: suggestion.summary,
+    duration: suggestion.duration,
+    rpe: suggestion.rpe,
+    estimatedLoad: suggestion.estimatedLoad,
+    rationale: suggestion.rationale,
+    blocks: suggestion.blocks,
+    exercises: suggestion.exercises,
+  }
+}
+
+function buildCoachRequestContext(
+  intent: CoachRequestIntent,
+  variationTarget: WorkoutSuggestion | null | undefined,
+): CoachRequestContext {
+  const normalizedTarget = toVariationTarget(variationTarget)
+
+  return {
+    intent,
+    objective:
+      intent === 'variation' && normalizedTarget
+        ? `Create a fresh variation of ${normalizedTarget.title} that stays at or below the same intensity and duration guardrails.`
+        : "Generate a coach-authored workout plan with distinct options that respect today's intensity guardrails.",
+    variationTarget: intent === 'variation' ? normalizedTarget : null,
+  }
+}
+
+function buildCoachIntensityProfile(
+  basePlan: WorkoutGeneratorPlan,
+  workoutInput: WorkoutGeneratorInput,
+  loadLabel: string,
+  recoveryLabel: string,
+  nutritionLabel: string,
+): CoachIntensityProfile {
+  const suggestionGuardrails = basePlan.suggestions.map((suggestion) => ({
+    suggestionId: suggestion.id,
+    label: suggestion.label,
+    maxDuration: suggestion.duration,
+    maxRpe: suggestion.rpe,
+    maxEstimatedLoad: suggestion.estimatedLoad,
+  }))
+  const maxDuration = suggestionGuardrails.reduce(
+    (highest, suggestion) => Math.max(highest, suggestion.maxDuration),
+    Math.min(workoutInput.availableMinutes, 20),
+  )
+  const maxRpe = suggestionGuardrails.reduce(
+    (highest, suggestion) => Math.max(highest, suggestion.maxRpe),
+    1,
+  )
+  const maxEstimatedLoad = suggestionGuardrails.reduce(
+    (highest, suggestion) => Math.max(highest, suggestion.maxEstimatedLoad),
+    0,
+  )
+  const guidance = [
+    `Do not exceed the ${basePlan.readiness.label.toLowerCase()} cap (${basePlan.readiness.cap}).`,
+    ...basePlan.readiness.reasons.map((reason) => `Intensity reason: ${reason}.`),
+    `Keep the session inside ${workoutInput.availableMinutes} available minutes.`,
+    `Target the current load picture: ${loadLabel.toLowerCase()}, ${recoveryLabel.toLowerCase()}, ${nutritionLabel.toLowerCase()}.`,
+  ]
+
+  return {
+    readinessScore: basePlan.readiness.score,
+    readinessLabel: basePlan.readiness.label,
+    readinessCap: basePlan.readiness.cap,
+    targetDuration: basePlan.suggestions[0]?.duration ?? workoutInput.availableMinutes,
+    maxDuration,
+    maxRpe,
+    maxEstimatedLoad,
+    loadLabel,
+    recoveryLabel,
+    nutritionLabel,
+    weeklySessionCount: workoutInput.weeklySessionCount,
+    guidance,
+    suggestionGuardrails,
+  }
 }
 
 function describeTrainingAge(trainingAge: AthleteTrainingAge) {
@@ -322,6 +477,8 @@ export function buildCoachContext({
   latestNutritionEntry,
   nutritionTargets,
   equipmentSummary,
+  requestIntent = 'full-plan',
+  variationTarget = null,
 }: BuildCoachContextInput): CoachContext {
   const loadBand = getRatioBand(currentRatio, baselineReady)
   const recoveryBand = getRecoveryBand(latestRecoveryEntry?.score ?? null)
@@ -333,6 +490,14 @@ export function buildCoachContext({
     athleteSummary: buildAthleteSummary(athleteProfile),
     workoutInput,
     equipmentSummary,
+    request: buildCoachRequestContext(requestIntent, variationTarget),
+    intensityProfile: buildCoachIntensityProfile(
+      basePlan,
+      workoutInput,
+      loadBand.label,
+      recoveryBand.label,
+      nutritionBand.label,
+    ),
     metrics: {
       load: {
         value: currentRatio === null ? 'Baseline building' : currentRatio.toFixed(2),
@@ -384,6 +549,9 @@ export function buildCoachContext({
       'Stay inside the availableMinutes window and do not exceed the current readiness cap.',
       'Respect the athlete profile, stated limitations, and listed home equipment.',
       'Treat the provided basePlan as the safe floor if the context is ambiguous.',
+      requestIntent === 'variation'
+        ? 'Return a distinct variation for the targeted suggestion without increasing duration, RPE, or estimated load.'
+        : 'Generate distinct workout options rather than paraphrasing the base plan.',
       'Return JSON only, using the response contract documented by the caller.',
     ],
   }
@@ -484,6 +652,110 @@ function buildWeeklyFocus(context: CoachContext) {
   return 'Today should fit into the rest of the week cleanly, so keep the plan repeatable and leave enough headroom for the next key session.'
 }
 
+function buildFallbackPlan(context: CoachContext) {
+  if (context.request.intent !== 'variation' || !context.request.variationTarget) {
+    return context.basePlan
+  }
+
+  const targetSuggestion = context.basePlan.suggestions.find(
+    (suggestion) => suggestion.id === context.request.variationTarget?.suggestionId,
+  )
+
+  if (!targetSuggestion) {
+    return context.basePlan
+  }
+
+  const remixedSuggestion = createWorkoutSuggestionVariation(
+    context.workoutInput,
+    targetSuggestion,
+  )
+
+  return {
+    ...context.basePlan,
+    detail: `Variation requested for ${targetSuggestion.title}. The exercise list was remixed while keeping the same intensity ceiling.`,
+    adjustments: [
+      ...context.basePlan.adjustments,
+      'Variation guardrail: keep the new option at or below the original duration, RPE, and estimated load.',
+    ],
+    suggestions: context.basePlan.suggestions.map((suggestion) =>
+      suggestion.id === targetSuggestion.id ? remixedSuggestion : suggestion,
+    ),
+  }
+}
+
+function normalizeText(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function isDistinctVariation(
+  suggestion: WorkoutSuggestion,
+  target: CoachVariationTarget,
+) {
+  if (normalizeText(suggestion.title) !== normalizeText(target.title)) {
+    return true
+  }
+
+  const suggestionExercises = suggestion.exercises.map((exercise) =>
+    normalizeText(exercise.name),
+  )
+  const targetExercises = target.exercises.map((exercise) => normalizeText(exercise.name))
+
+  if (suggestionExercises.length !== targetExercises.length) {
+    return true
+  }
+
+  return suggestionExercises.some((exerciseName, index) => exerciseName !== targetExercises[index])
+}
+
+function ensureVariationResult(
+  result: CoachPlanResult,
+  context: CoachContext,
+): CoachPlanResult {
+  const target = context.request.variationTarget
+
+  if (context.request.intent !== 'variation' || !target) {
+    return result
+  }
+
+  const coachSuggestion = result.plan.suggestions.find(
+    (suggestion) => suggestion.id === target.suggestionId,
+  )
+
+  if (coachSuggestion && isDistinctVariation(coachSuggestion, target)) {
+    return result
+  }
+
+  const fallbackPlan = buildFallbackPlan(context)
+  const fallbackSuggestion = fallbackPlan.suggestions.find(
+    (suggestion) => suggestion.id === target.suggestionId,
+  )
+
+  if (!fallbackSuggestion) {
+    return result
+  }
+
+  return {
+    ...result,
+    plan: {
+      ...result.plan,
+      detail: fallbackPlan.detail,
+      adjustments: Array.from(
+        new Set([
+          ...result.plan.adjustments,
+          'Variation guardrail: the targeted option was locally remixed because the coach result stayed too close to the original session.',
+        ]),
+      ),
+      suggestions: result.plan.suggestions.map((suggestion) =>
+        suggestion.id === target.suggestionId ? fallbackSuggestion : suggestion,
+      ),
+    },
+    warnings: [
+      ...result.warnings,
+      `${result.coachName} returned a variation that was too close to the original ${target.title}, so the app substituted a locally remixed version for that option.`,
+    ],
+  }
+}
+
 export function createFallbackCoachPlan(
   context: CoachContext,
   config: CoachConfig,
@@ -494,8 +766,15 @@ export function createFallbackCoachPlan(
     source: 'fallback',
     coachName: config.assistantName,
     generatedAt: new Date().toISOString(),
-    plan: context.basePlan,
-    insights: buildCoachInsights(context),
+    plan: buildFallbackPlan(context),
+    insights: [
+      ...buildCoachInsights(context),
+      ...(context.request.intent === 'variation' && context.request.variationTarget
+        ? [
+            `Variation request: ${context.request.variationTarget.title} was remixed while keeping the same intensity guardrails.`,
+          ]
+        : []),
+    ],
     recoveryRecommendations: buildRecoveryRecommendations(context),
     nutritionRecommendations: buildNutritionRecommendations(context),
     weeklyFocus: buildWeeklyFocus(context),
@@ -516,11 +795,16 @@ function mergeReadiness(
   }
 
   return {
-    score: Math.round(readFiniteNumber(value.score, fallback.score, 0, 100)),
+    score: Math.min(
+      fallback.score,
+      Math.round(readFiniteNumber(value.score, fallback.score, 0, 100)),
+    ),
     label: readString(value.label, fallback.label),
     detail: readString(value.detail, fallback.detail),
     color: readString(value.color, fallback.color),
-    cap: isReadinessCap(value.cap) ? value.cap : fallback.cap,
+    cap: isReadinessCap(value.cap)
+      ? clampReadinessCap(value.cap, fallback.cap)
+      : fallback.cap,
     reasons: readStringArray(value.reasons, fallback.reasons),
   }
 }
@@ -633,10 +917,16 @@ function mergeSuggestion(
     label: readString(value.label, fallback.label),
     title: readString(value.title, fallback.title),
     summary: readString(value.summary, fallback.summary),
-    duration: Math.round(readFiniteNumber(value.duration, fallback.duration, 5, 180)),
-    rpe: readFiniteNumber(value.rpe, fallback.rpe, 1, 10),
-    estimatedLoad: Math.round(
-      readFiniteNumber(value.estimatedLoad, fallback.estimatedLoad, 0, 2_000),
+    duration: Math.min(
+      fallback.duration,
+      Math.round(readFiniteNumber(value.duration, fallback.duration, 5, 180)),
+    ),
+    rpe: Math.min(fallback.rpe, readFiniteNumber(value.rpe, fallback.rpe, 1, 10)),
+    estimatedLoad: Math.min(
+      fallback.estimatedLoad,
+      Math.round(
+        readFiniteNumber(value.estimatedLoad, fallback.estimatedLoad, 0, 2_000),
+      ),
     ),
     rationale: readString(value.rationale, fallback.rationale),
     fueling: readString(value.fueling, fallback.fueling),
@@ -655,19 +945,30 @@ function mergeSuggestions(
   }
 
   const fallbackById = new Map(fallback.map((suggestion) => [suggestion.id, suggestion]))
-  const nextSuggestions = value.flatMap((item, index) => {
+  const mergedSuggestions = new Map<WorkoutSuggestion['id'], WorkoutSuggestion>()
+
+  value.forEach((item, index) => {
     if (!isRecord(item)) {
-      return []
+      return
     }
 
     const fallbackSuggestion = isSuggestionId(item.id)
       ? fallbackById.get(item.id)
       : fallback[index]
 
-    return fallbackSuggestion ? [mergeSuggestion(item, fallbackSuggestion)] : []
+    if (!fallbackSuggestion) {
+      return
+    }
+
+    mergedSuggestions.set(
+      fallbackSuggestion.id,
+      mergeSuggestion(item, fallbackSuggestion),
+    )
   })
 
-  return nextSuggestions.length === fallback.length ? nextSuggestions : fallback
+  return fallback.map(
+    (suggestion) => mergedSuggestions.get(suggestion.id) ?? suggestion,
+  )
 }
 
 function mergePlan(
@@ -760,7 +1061,10 @@ export async function requestCoachPlan(
 
     const payload: unknown = await response.json()
 
-    return normalizeCoachPlanResult(payload, fallback)
+    return ensureVariationResult(
+      normalizeCoachPlanResult(payload, fallback),
+      context,
+    )
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error

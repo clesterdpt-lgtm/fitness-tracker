@@ -11,9 +11,10 @@ npm run dev
 
 ## Coach integration
 
-The app now supports an OpenClaw-style coaching overlay on top of the built-in workout generator.
+The app now supports an OpenClaw-style coaching layer on top of the built-in workout generator.
 
 - The existing rules-based generator still calculates readiness and provides the safe fallback plan.
+- OpenClaw can generate a full workout plan or a variation for a selected session option.
 - Athlete profile and coach connection settings are stored in browser `localStorage`.
 - If no external endpoint is configured, the app uses a built-in coaching fallback so the feature still works on GitHub Pages.
 
@@ -139,7 +140,7 @@ The included local proxy is a good starting point if you want to host a thin ada
 
 ## Request contract
 
-When you click `Generate with ...` in the workout generator, the app sends:
+When you click `Generate workout with ...` or ask for a coach variation in the workout generator, the app sends:
 
 ```json
 {
@@ -151,6 +152,18 @@ When you click `Generate with ...` in the workout generator, the app sends:
     "athleteSummary": "...",
     "workoutInput": {},
     "equipmentSummary": "Dumbbells, bench, yoga mat",
+    "request": {
+      "intent": "full-plan",
+      "objective": "Generate a coach-authored workout plan...",
+      "variationTarget": null
+    },
+    "intensityProfile": {
+      "readinessCap": "moderate",
+      "maxDuration": 45,
+      "maxRpe": 7,
+      "maxEstimatedLoad": 315,
+      "suggestionGuardrails": []
+    },
     "metrics": {
       "load": {},
       "recovery": {},
@@ -166,6 +179,12 @@ When you click `Generate with ...` in the workout generator, the app sends:
   }
 }
 ```
+
+Notes:
+
+- `request.intent` is `full-plan` for a fresh coach-built workout and `variation` when the user asks the coach to rewrite one specific option.
+- `request.variationTarget` contains the suggestion being varied when `intent` is `variation`.
+- `intensityProfile` and `basePlan` are hard guardrails. The app clamps duration, RPE, estimated load, and readiness so the coach cannot exceed the safe local prescription.
 
 ## Response contract
 
@@ -252,5 +271,7 @@ Your OpenClaw endpoint should return JSON. The easiest shape is:
   "warnings": []
 }
 ```
+
+You can also return only the targeted suggestion during a variation request as long as the JSON still includes `plan.suggestions`; the app will merge it with the current plan and keep the untouched fallback suggestions.
 
 The app validates this response and falls back to the local generator if fields are missing or malformed.
