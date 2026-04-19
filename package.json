@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "coach-proxy": "node scripts/openclaw-proxy.mjs",
+    "coach-proxy:docker": "node scripts/docker-openclaw-coach-proxy.mjs"
   },
   "dependencies": {
     "react": "^19.2.4",

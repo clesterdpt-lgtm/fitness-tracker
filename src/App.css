@@ -1404,11 +1404,115 @@
   margin: 0;
 }
 
+.generator-coach-status {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(15, 23, 32, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 241, 233, 0.74)),
+    rgba(255, 255, 255, 0.58);
+}
+
+.generator-coach-status-copy {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.generator-coach-status-copy p,
+.generator-coach-list p {
+  margin: 0;
+}
+
+.generator-coach-timestamp {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.generator-coach-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.generator-coach-card {
+  padding: 1rem 1.05rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(15, 23, 32, 0.08);
+  background: rgba(255, 255, 255, 0.62);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.generator-coach-list {
+  display: grid;
+  gap: 0.55rem;
+  color: var(--muted-strong);
+}
+
+.generator-coach-warning-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .settings-equipment-grid,
 .settings-selected-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.settings-profile-section,
+.settings-connection-section {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid rgba(15, 23, 32, 0.08);
+}
+
+.settings-profile-grid {
+  align-items: start;
+}
+
+.settings-connection-preset {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(15, 23, 32, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 241, 233, 0.72)),
+    rgba(255, 255, 255, 0.62);
+}
+
+.settings-connection-preset-copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.settings-connection-preset-copy p {
+  margin: 0;
+  color: var(--muted-strong);
+}
+
+.settings-connection-preset-copy code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+.settings-connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: start;
+  gap: 0.75rem;
 }
 
 .settings-category-stack,
@@ -1670,7 +1774,9 @@ body.app-drawer-open {
   .sidebar-nav,
   .hero-metadata,
   .entry-grid,
+  .generator-coach-grid,
   .settings-equipment-grid,
+  .settings-profile-grid,
   .settings-selected-grid,
   .generator-context-grid,
   .generator-metric-grid,
@@ -1686,6 +1792,7 @@ body.app-drawer-open {
   .section-heading,
   .entry-footer,
   .sidebar-nav-row,
+  .generator-coach-status,
   .generator-home-setup-header,
   .generator-format-row,
   .equipment-option-header,
