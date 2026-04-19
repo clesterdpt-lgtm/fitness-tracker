@@ -22,7 +22,7 @@ const GATEWAY_BACKEND_MODEL =
   ''
 const GATEWAY_MAX_OUTPUT_TOKENS = parseInteger(
   process.env.OPENCLAW_GATEWAY_MAX_OUTPUT_TOKENS,
-  1800,
+  1200,
 )
 const COACH_NAME = process.env.COACH_NAME?.trim() || 'OpenClaw Proxy Coach'
 const MODE = resolveMode()
@@ -314,16 +314,96 @@ function buildGatewayInput(requestBody) {
 
 function buildGatewayPrompt(requestBody) {
   const { context } = requestBody
+  const compactContext = buildCompactGatewayContext(context)
 
   return [
     'Generate a coaching response for this workout request.',
     '',
-    'Base plan safety boundary:',
-    JSON.stringify(context.basePlan ?? {}, null, 2),
-    '',
-    'Full coaching context:',
-    JSON.stringify(context, null, 2),
+    'Use this compact coaching context and stay inside the base-plan safety boundary.',
+    JSON.stringify(compactContext, null, 2),
   ].join('\n')
+}
+
+function buildCompactGatewayContext(context) {
+  const suggestions = Array.isArray(context?.basePlan?.suggestions)
+    ? context.basePlan.suggestions.slice(0, 3).map((suggestion) => ({
+        id: suggestion?.id,
+        label: suggestion?.label,
+        title: suggestion?.title,
+        summary: suggestion?.summary,
+        duration: suggestion?.duration,
+        rpe: suggestion?.rpe,
+        estimatedLoad: suggestion?.estimatedLoad,
+        rationale: suggestion?.rationale,
+        caution: suggestion?.caution,
+        blocks: Array.isArray(suggestion?.blocks)
+          ? suggestion.blocks.slice(0, 4).map((block) => ({
+              label: block?.label,
+              detail: block?.detail,
+            }))
+          : [],
+        exercises: Array.isArray(suggestion?.exercises)
+          ? suggestion.exercises.slice(0, 6).map((exercise) => ({
+              name: exercise?.name,
+              prescription: exercise?.prescription,
+              detail: exercise?.detail,
+            }))
+          : [],
+      }))
+    : []
+
+  const recentSessions = Array.isArray(context?.recentSessions)
+    ? context.recentSessions.slice(0, 3).map((session) => ({
+        date: session?.date,
+        title: session?.title,
+        duration: session?.duration,
+        rpe: session?.rpe,
+        load: session?.load,
+        notes: session?.notes,
+      }))
+    : []
+
+  return {
+    athlete: {
+      name: context?.athleteProfile?.name,
+      trainingAge: context?.athleteProfile?.trainingAge,
+      primaryGoal: context?.athleteProfile?.primaryGoal,
+      weeklyAvailability: context?.athleteProfile?.weeklyAvailability,
+      sessionPreference: context?.athleteProfile?.sessionPreference,
+      limitations: context?.athleteProfile?.limitations,
+      preferences: context?.athleteProfile?.preferences,
+      notes: context?.athleteProfile?.notes,
+      summary: context?.athleteSummary,
+    },
+    workoutRequest: {
+      goal: context?.workoutInput?.goal,
+      availableMinutes: context?.workoutInput?.availableMinutes,
+      energy: context?.workoutInput?.energy,
+      soreness: context?.workoutInput?.soreness,
+      equipment: context?.workoutInput?.equipment,
+      equipmentSummary: context?.equipmentSummary,
+    },
+    status: {
+      load: context?.metrics?.load,
+      recovery: context?.metrics?.recovery,
+      nutrition: context?.metrics?.nutrition,
+      weeklySessionCount: context?.metrics?.weeklySessionCount,
+      latestRecovery: context?.latestRecovery,
+      latestNutrition: context?.latestNutrition,
+      nutritionTargets: context?.nutritionTargets,
+    },
+    recentSessions,
+    guidelines: Array.isArray(context?.guidelines) ? context.guidelines.slice(0, 6) : [],
+    basePlan: {
+      readiness: context?.basePlan?.readiness,
+      headline: context?.basePlan?.headline,
+      detail: context?.basePlan?.detail,
+      adjustments: Array.isArray(context?.basePlan?.adjustments)
+        ? context.basePlan.adjustments.slice(0, 6)
+        : [],
+      suggestions,
+    },
+  }
 }
 
 function normalizeUpstreamResponse(upstreamJson, requestBody) {
