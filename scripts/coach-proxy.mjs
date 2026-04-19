@@ -13,6 +13,14 @@ const UPSTREAM_URL = process.env.COACH_UPSTREAM_URL?.trim() || ''
 const UPSTREAM_AUTH_HEADER =
   process.env.COACH_UPSTREAM_AUTH_HEADER?.trim() || 'Authorization'
 const UPSTREAM_AUTH_TOKEN = process.env.COACH_UPSTREAM_AUTH_TOKEN?.trim() || ''
+const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY?.trim() || ''
+const MINIMAX_BASE_URL =
+  process.env.MINIMAX_BASE_URL?.trim() || 'https://api.minimax.io/v1'
+const MINIMAX_CHAT_COMPLETIONS_URL = `${MINIMAX_BASE_URL.replace(/\/$/, '')}/chat/completions`
+const MINIMAX_MODEL = process.env.MINIMAX_MODEL?.trim() || 'MiniMax-M2.7'
+const MINIMAX_MAX_TOKENS = parseInteger(process.env.MINIMAX_MAX_TOKENS, 1400)
+const MINIMAX_TEMPERATURE = parseDecimal(process.env.MINIMAX_TEMPERATURE, 0.2)
+const MINIMAX_REASONING_SPLIT = parseBoolean(process.env.MINIMAX_REASONING_SPLIT, true)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() || ''
 const OPENAI_RESPONSES_URL =
   process.env.OPENAI_RESPONSES_URL?.trim() || 'https://api.openai.com/v1/responses'
@@ -26,7 +34,7 @@ const OPENAI_PROJECT = process.env.OPENAI_PROJECT?.trim() || ''
 const OPENAI_REASONING_EFFORT = normalizeReasoningEffort(
   process.env.OPENAI_REASONING_EFFORT?.trim().toLowerCase() || '',
 )
-const COACH_NAME = process.env.COACH_NAME?.trim() || 'OpenAI Coach'
+const COACH_NAME = process.env.COACH_NAME?.trim() || 'API Coach'
 const MODE = resolveMode()
 
 function parseInteger(value, fallback) {
@@ -37,6 +45,32 @@ function parseInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10)
 
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function parseDecimal(value, fallback) {
+  if (!value) {
+    return fallback
+  }
+
+  const parsed = Number.parseFloat(value)
+
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function parseBoolean(value, fallback) {
+  if (!value) {
+    return fallback
+  }
+
+  if (value === 'true' || value === '1') {
+    return true
+  }
+
+  if (value === 'false' || value === '0') {
+    return false
+  }
+
+  return fallback
 }
 
 function resolveMode() {
@@ -50,6 +84,10 @@ function resolveMode() {
     console.warn(
       `Ignoring unsupported COACH_PROXY_MODE="${EXPLICIT_MODE}". Falling back to automatic mode selection.`,
     )
+  }
+
+  if (MINIMAX_API_KEY) {
+    return 'minimax'
   }
 
   if (OPENAI_API_KEY) {
@@ -72,7 +110,7 @@ function normalizeMode(value) {
     return 'upstream'
   }
 
-  if (value === 'mock' || value === 'openai' || value === 'upstream') {
+  if (value === 'mock' || value === 'minimax' || value === 'openai' || value === 'upstream') {
     return value
   }
 
@@ -247,7 +285,7 @@ function buildMockCoachResponse(requestBody) {
       detail: context.basePlan.detail,
       adjustments: [
         ...(context.basePlan.adjustments ?? []),
-        'This response is coming from the local proxy mock. Add an `OPENAI_API_KEY` to use the OpenAI-backed coach or `COACH_UPSTREAM_URL` for a custom upstream adapter.',
+        'This response is coming from the local proxy mock. Add an `OPENAI_API_KEY`, `MINIMAX_API_KEY`, or `COACH_UPSTREAM_URL` to enable a real API-backed coach.',
       ],
     },
     insights,
@@ -264,7 +302,7 @@ function buildMockCoachResponse(requestBody) {
         ? 'The week is already fairly full, so make today repeatable rather than maximal.'
         : 'There is still room in the week, so use today to build momentum without overshooting the next session.',
     warnings: [
-      'No OpenAI API key or custom upstream URL is configured, so the proxy returned a mock coaching response built from the local generator context.',
+      'No provider API key or custom upstream URL is configured, so the proxy returned a mock coaching response built from the local generator context.',
     ],
   }
 }
@@ -273,29 +311,7 @@ function buildUpstreamPayload(requestBody) {
   return requestBody
 }
 
-function buildOpenAIPayload(requestBody) {
-  const payload = {
-    model: OPENAI_MODEL,
-    instructions: buildOpenAIInstructions(),
-    input: buildOpenAIInput(requestBody),
-    max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-    text: {
-      format: {
-        type: 'json_object',
-      },
-    },
-  }
-
-  if (OPENAI_REASONING_EFFORT) {
-    payload.reasoning = {
-      effort: OPENAI_REASONING_EFFORT,
-    }
-  }
-
-  return payload
-}
-
-function buildOpenAIInstructions() {
+function buildProviderInstructions() {
   return [
     'You are the coaching layer for a fitness tracker app.',
     `Return exactly one JSON object and nothing else. Use "${COACH_NAME}" as coachName unless the request context specifies a better display name.`,
@@ -318,11 +334,7 @@ function buildOpenAIInstructions() {
   ].join('\n')
 }
 
-function buildOpenAIInput(requestBody) {
-  return buildOpenAIPrompt(requestBody)
-}
-
-function buildOpenAIPrompt(requestBody) {
+function buildProviderPrompt(requestBody) {
   const { context } = requestBody
   const compactContext = buildCompactContext(context)
 
@@ -332,6 +344,51 @@ function buildOpenAIPrompt(requestBody) {
     'Use this compact coaching context and stay inside the base-plan safety boundary.',
     JSON.stringify(compactContext, null, 2),
   ].join('\n')
+}
+
+function buildChatCompletionMessages(requestBody) {
+  return [
+    {
+      role: 'system',
+      content: buildProviderInstructions(),
+    },
+    {
+      role: 'user',
+      content: buildProviderPrompt(requestBody),
+    },
+  ]
+}
+
+function buildOpenAIPayload(requestBody) {
+  const payload = {
+    model: OPENAI_MODEL,
+    instructions: buildProviderInstructions(),
+    input: buildProviderPrompt(requestBody),
+    max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+    text: {
+      format: {
+        type: 'json_object',
+      },
+    },
+  }
+
+  if (OPENAI_REASONING_EFFORT) {
+    payload.reasoning = {
+      effort: OPENAI_REASONING_EFFORT,
+    }
+  }
+
+  return payload
+}
+
+function buildMinimaxPayload(requestBody) {
+  return {
+    model: MINIMAX_MODEL,
+    messages: buildChatCompletionMessages(requestBody),
+    max_tokens: MINIMAX_MAX_TOKENS,
+    temperature: Math.max(0.1, Math.min(MINIMAX_TEMPERATURE, 1)),
+    reasoning_split: MINIMAX_REASONING_SPLIT,
+  }
 }
 
 function buildCompactContext(context) {
@@ -438,7 +495,9 @@ function normalizeUpstreamResponse(upstreamJson, requestBody) {
     warnings: [
       MODE === 'openai'
         ? 'The OpenAI API responded, but it did not return the expected coach JSON contract. The proxy fell back to a mock coaching response.'
-        : 'The upstream service responded, but it did not return the expected JSON contract. The proxy fell back to a mock coaching response.',
+        : MODE === 'minimax'
+          ? 'The MiniMax API responded, but it did not return the expected coach JSON contract. The proxy fell back to a mock coaching response.'
+          : 'The upstream service responded, but it did not return the expected JSON contract. The proxy fell back to a mock coaching response.',
     ],
   }
 }
@@ -454,6 +513,7 @@ function getTextCandidates(payload) {
     payload.content,
     payload.response?.output_text,
     payload.response?.text,
+    payload.choices?.[0]?.message?.content,
     ...extractOutputTextParts(payload.output),
     ...extractOutputTextParts(payload.response?.output),
   ].filter(Boolean)
@@ -550,6 +610,31 @@ async function callOpenAI(requestBody) {
   return normalizeUpstreamResponse(responseJson, requestBody)
 }
 
+async function callMinimax(requestBody) {
+  const upstreamResponse = await fetch(MINIMAX_CHAT_COMPLETIONS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: formatBearerToken(MINIMAX_API_KEY),
+    },
+    body: JSON.stringify(buildMinimaxPayload(requestBody)),
+  })
+
+  const responseText = await upstreamResponse.text()
+  const responseJson = tryParseJson(responseText) ?? tryParseJsonCandidate(responseText) ?? {}
+
+  if (!upstreamResponse.ok) {
+    throw new Error(
+      `MiniMax request failed with ${upstreamResponse.status}: ${extractErrorMessage(
+        responseText,
+        responseJson,
+      )}`,
+    )
+  }
+
+  return normalizeUpstreamResponse(responseJson, requestBody)
+}
+
 async function callGenericUpstream(requestBody) {
   if (!UPSTREAM_URL) {
     return buildMockCoachResponse(requestBody)
@@ -583,6 +668,10 @@ async function callGenericUpstream(requestBody) {
 }
 
 async function callCoachProvider(requestBody) {
+  if (MODE === 'minimax') {
+    return callMinimax(requestBody)
+  }
+
   if (MODE === 'openai') {
     return callOpenAI(requestBody)
   }
@@ -608,6 +697,10 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         mode: MODE,
         upstreamUrlConfigured: Boolean(UPSTREAM_URL),
+        minimaxConfigured: Boolean(MINIMAX_API_KEY),
+        minimaxBaseUrl: MINIMAX_BASE_URL,
+        minimaxModel: MINIMAX_MODEL,
+        minimaxReasoningSplit: MINIMAX_REASONING_SPLIT,
         openaiConfigured: Boolean(OPENAI_API_KEY),
         openaiResponsesUrl: OPENAI_RESPONSES_URL,
         openaiModel: OPENAI_MODEL,
@@ -642,7 +735,9 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   const mode =
-    MODE === 'openai'
+    MODE === 'minimax'
+      ? `MiniMax mode -> ${MINIMAX_CHAT_COMPLETIONS_URL} (${MINIMAX_MODEL})`
+      : MODE === 'openai'
       ? `OpenAI mode -> ${OPENAI_RESPONSES_URL} (${OPENAI_MODEL})`
       : MODE === 'upstream'
         ? `proxying to ${UPSTREAM_URL}`

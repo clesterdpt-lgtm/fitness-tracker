@@ -171,7 +171,7 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
 }
 
 export const DEFAULT_COACH_CONFIG: CoachConfig = {
-  assistantName: 'OpenAI Coach',
+  assistantName: 'AI Coach',
   endpointUrl: '',
   requestTimeoutMs: 15_000,
 }

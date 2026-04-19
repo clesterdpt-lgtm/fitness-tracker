@@ -185,7 +185,7 @@ const CUSTOM_HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.custom-home-equipment
 const ATHLETE_PROFILE_STORAGE_KEY = 'fitness-tracker.athlete-profile.v1'
 const COACH_CONFIG_STORAGE_KEY = 'fitness-tracker.coach-config.v1'
 const LOCAL_API_COACH_PRESET: CoachConfig = {
-  assistantName: 'OpenAI Coach',
+  assistantName: 'AI Coach',
   endpointUrl: 'http://localhost:8787/coach',
   requestTimeoutMs: 45_000,
 }
@@ -4542,7 +4542,7 @@ function SettingsWorkspace({
                   <input
                     type="text"
                     value={coachConfig.assistantName}
-                    placeholder="OpenAI Coach"
+                    placeholder="AI Coach"
                     onChange={(event) =>
                       onCoachConfigChange('assistantName', event.currentTarget.value)
                     }

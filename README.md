@@ -35,6 +35,7 @@ http://localhost:8787/coach
 What the local proxy does:
 
 - `mock` mode is the default and returns a coach response built from the app's local generator context.
+- `minimax` mode translates the app request into a MiniMax chat completion call and normalizes the response back into the app's coach contract.
 - `openai` mode translates the app request into an OpenAI `POST /v1/responses` call and normalizes the response back into the app's coach contract.
 - `upstream` mode forwards the request to any custom HTTP service you want to use instead.
 
@@ -50,7 +51,7 @@ If you want to use the OpenAI Responses API through the local proxy, run it like
 
 ```bash
 OPENAI_API_KEY="replace-with-your-api-key" \
-npm run coach-proxy
+npm run coach-proxy:openai
 ```
 
 OpenAI mode notes:
@@ -74,8 +75,29 @@ If you use the `ftcoach` launcher or the background LaunchAgent, store your key 
 Example:
 
 ```bash
-cp ~/.config/fitness-tracker-coach.env.example ~/.config/fitness-tracker-coach.env
+mkdir -p ~/.config
+cp ./fitness-tracker-coach.env.example ~/.config/fitness-tracker-coach.env
 ```
+
+### MiniMax API mode
+
+MiniMax exposes an official OpenAI-compatible API on `https://api.minimax.io/v1`, so the local proxy can use it directly.
+
+```bash
+COACH_PROXY_MODE=minimax \
+MINIMAX_API_KEY="replace-with-your-api-key" \
+npm run coach-proxy:minimax
+```
+
+MiniMax mode notes:
+
+- `MINIMAX_API_KEY` is required for real MiniMax API calls.
+- `MINIMAX_BASE_URL` defaults to `https://api.minimax.io/v1`.
+- `MINIMAX_MODEL` defaults to `MiniMax-M2.7`.
+- `MINIMAX_MAX_TOKENS` caps the completion token budget.
+- `MINIMAX_TEMPERATURE` defaults to `0.2`. MiniMax documents the valid range as `(0.0, 1.0]`.
+- `MINIMAX_REASONING_SPLIT` defaults to `true`, which helps keep reasoning content separate from the final text output.
+- If both OpenAI and MiniMax keys are present, set `COACH_PROXY_MODE` explicitly so the proxy uses the provider you want.
 
 ### Custom upstream mode
 
@@ -90,7 +112,7 @@ npm run coach-proxy
 
 The one place to customize that upstream payload shape is `buildUpstreamPayload()` in [scripts/coach-proxy.mjs](/Users/chrislester/Documents/Fitness-tracker/scripts/coach-proxy.mjs).
 
-If you do not set `COACH_PROXY_MODE`, the proxy automatically picks `openai` when `OPENAI_API_KEY` is present, `upstream` when `COACH_UPSTREAM_URL` is present, and otherwise falls back to `mock`.
+If you do not set `COACH_PROXY_MODE`, the proxy automatically picks `minimax` when `MINIMAX_API_KEY` is present, `openai` when `OPENAI_API_KEY` is present, `upstream` when `COACH_UPSTREAM_URL` is present, and otherwise falls back to `mock`.
 
 ## Important hosting note
 
@@ -156,7 +178,7 @@ Your API coach endpoint should return JSON. The easiest shape is:
 
 ```json
 {
-  "coachName": "OpenAI Coach",
+  "coachName": "AI Coach",
   "generatedAt": "2026-04-18T20:31:00.000Z",
   "plan": {
     "readiness": {
