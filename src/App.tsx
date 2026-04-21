@@ -4,24 +4,9 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
-  useRef,
   useState,
 } from 'react'
 import './App.css'
-import {
-  buildCoachContext,
-  DEFAULT_ATHLETE_PROFILE,
-  DEFAULT_COACH_CONFIG,
-  hydrateAthleteProfile,
-  hydrateCoachConfig,
-  requestCoachPlan,
-  type AthletePrimaryGoal,
-  type AthleteProfile,
-  type AthleteTrainingAge,
-  type CoachConfig,
-  type CoachContext,
-  type CoachPlanResult,
-} from './lib/coach'
 import {
   buildNutritionSeries,
   calculateNutritionScore,
@@ -145,13 +130,6 @@ type WorkoutSuggestionOverrideState = {
   suggestions: WorkoutSuggestionOverrides
 }
 
-type CoachPlanState = {
-  contextKey: string
-  result: CoachPlanResult | null
-  isLoading: boolean
-  errorMessage: string
-}
-
 type AppSectionId =
   | 'dashboard'
   | 'workload'
@@ -182,13 +160,6 @@ const NUTRITION_STORAGE_KEY = 'fitness-tracker.nutrition.v1'
 const NUTRITION_TARGETS_STORAGE_KEY = 'fitness-tracker.nutrition-targets.v1'
 const HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.home-equipment.v1'
 const CUSTOM_HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.custom-home-equipment.v1'
-const ATHLETE_PROFILE_STORAGE_KEY = 'fitness-tracker.athlete-profile.v1'
-const COACH_CONFIG_STORAGE_KEY = 'fitness-tracker.coach-config.v1'
-const LOCAL_API_COACH_PRESET: CoachConfig = {
-  assistantName: 'AI Coach',
-  endpointUrl: 'http://localhost:8787/coach',
-  requestTimeoutMs: 45_000,
-}
 const numberFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 })
@@ -199,12 +170,6 @@ const sleepHoursFormatter = new Intl.NumberFormat('en-US', {
 const hydrationFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
-})
-const coachTimestampFormatter = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
 })
 const APP_SECTIONS: AppSection[] = [
   {
@@ -246,65 +211,8 @@ const APP_SECTIONS: AppSection[] = [
     id: 'settings',
     label: 'Settings',
     eyebrow: 'Live workspace',
-    summary: 'Save your coach profile, endpoint details, and home workout setup.',
+    summary: 'Set up the equipment available for home workouts and generator preferences.',
     badge: 'Live',
-  },
-]
-const ATHLETE_TRAINING_AGE_OPTIONS: Array<{
-  value: AthleteTrainingAge
-  label: string
-  summary: string
-}> = [
-  {
-    value: 'beginner',
-    label: 'Beginner',
-    summary: 'Newer to structured training and usually better with simpler progressions.',
-  },
-  {
-    value: 'intermediate',
-    label: 'Intermediate',
-    summary: 'Comfortable with consistent training and moderate session variety.',
-  },
-  {
-    value: 'advanced',
-    label: 'Advanced',
-    summary: 'Can usually handle more specific work and tighter programming constraints.',
-  },
-]
-const ATHLETE_PRIMARY_GOAL_OPTIONS: Array<{
-  value: AthletePrimaryGoal
-  label: string
-  summary: string
-}> = [
-  {
-    value: 'general-fitness',
-    label: 'General Fitness',
-    summary: 'Stay consistent, balanced, and durable across the week.',
-  },
-  {
-    value: 'fat-loss',
-    label: 'Fat Loss',
-    summary: 'Support body composition goals without losing training consistency.',
-  },
-  {
-    value: 'muscle-gain',
-    label: 'Muscle Gain',
-    summary: 'Bias training and recovery toward hypertrophy-friendly work.',
-  },
-  {
-    value: 'endurance',
-    label: 'Endurance',
-    summary: 'Improve aerobic capacity and repeatable engine work.',
-  },
-  {
-    value: 'strength',
-    label: 'Strength',
-    summary: 'Prioritize force production and lifting quality.',
-  },
-  {
-    value: 'return-to-training',
-    label: 'Return to Training',
-    summary: 'Build back rhythm carefully after time away or a setback.',
   },
 ]
 const WORKOUT_GOAL_OPTIONS: Array<{
@@ -682,28 +590,6 @@ function formatNutritionScore(value: number | null) {
   return value === null ? '--' : numberFormatter.format(value)
 }
 
-function formatCoachGeneratedAt(value: string) {
-  const parsedDate = new Date(value)
-
-  return Number.isNaN(parsedDate.getTime())
-    ? 'Just now'
-    : coachTimestampFormatter.format(parsedDate)
-}
-
-function getAthleteTrainingAgeOption(trainingAge: AthleteTrainingAge) {
-  return (
-    ATHLETE_TRAINING_AGE_OPTIONS.find((option) => option.value === trainingAge) ??
-    ATHLETE_TRAINING_AGE_OPTIONS[0]
-  )
-}
-
-function getAthletePrimaryGoalOption(primaryGoal: AthletePrimaryGoal) {
-  return (
-    ATHLETE_PRIMARY_GOAL_OPTIONS.find((option) => option.value === primaryGoal) ??
-    ATHLETE_PRIMARY_GOAL_OPTIONS[0]
-  )
-}
-
 function getWorkoutGoalOption(goal: WorkoutGeneratorGoal) {
   return (
     WORKOUT_GOAL_OPTIONS.find((option) => option.value === goal) ??
@@ -1016,74 +902,6 @@ function loadStoredCustomHomeEquipment() {
       .filter((equipment) => equipment.name)
   } catch {
     return []
-  }
-}
-
-function loadStoredAthleteProfile() {
-  if (typeof window === 'undefined') {
-    return DEFAULT_ATHLETE_PROFILE
-  }
-
-  try {
-    const raw = window.localStorage.getItem(ATHLETE_PROFILE_STORAGE_KEY)
-
-    if (!raw) {
-      return DEFAULT_ATHLETE_PROFILE
-    }
-
-    return hydrateAthleteProfile(JSON.parse(raw))
-  } catch {
-    return DEFAULT_ATHLETE_PROFILE
-  }
-}
-
-function loadStoredCoachConfig() {
-  if (typeof window === 'undefined') {
-    return DEFAULT_COACH_CONFIG
-  }
-
-  try {
-    const raw = window.localStorage.getItem(COACH_CONFIG_STORAGE_KEY)
-
-    if (!raw) {
-      return DEFAULT_COACH_CONFIG
-    }
-
-    return hydrateCoachConfig(JSON.parse(raw))
-  } catch {
-    return DEFAULT_COACH_CONFIG
-  }
-}
-
-function isLocalApiCoachPresetActive(coachConfig: CoachConfig) {
-  return coachConfig.endpointUrl.trim() === LOCAL_API_COACH_PRESET.endpointUrl
-}
-
-function isDefaultCoachConfigActive(coachConfig: CoachConfig) {
-  return (
-    coachConfig.assistantName === DEFAULT_COACH_CONFIG.assistantName &&
-    coachConfig.endpointUrl.trim() === DEFAULT_COACH_CONFIG.endpointUrl &&
-    coachConfig.requestTimeoutMs === DEFAULT_COACH_CONFIG.requestTimeoutMs
-  )
-}
-
-function getEffectiveCoachTimeoutMs(coachConfig: CoachConfig) {
-  const endpointUrl = coachConfig.endpointUrl.trim()
-
-  if (!endpointUrl) {
-    return coachConfig.requestTimeoutMs
-  }
-
-  try {
-    const parsedUrl = new URL(endpointUrl)
-    const isLocalCoachEndpoint =
-      parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1'
-
-    return isLocalCoachEndpoint
-      ? Math.max(coachConfig.requestTimeoutMs, LOCAL_API_COACH_PRESET.requestTimeoutMs)
-      : coachConfig.requestTimeoutMs
-  } catch {
-    return coachConfig.requestTimeoutMs
   }
 }
 
@@ -3608,11 +3426,6 @@ function WorkoutGeneratorWorkspace({
   formState,
   onInputChange,
   plan,
-  coachResult,
-  coachConfigured,
-  coachAssistantName,
-  coachErrorMessage,
-  coachIsLoading,
   currentSnapshot,
   ratioBand,
   latestRecoveryEntry,
@@ -3623,9 +3436,6 @@ function WorkoutGeneratorWorkspace({
   homeEquipment,
   customHomeEquipment,
   onOpenHomeEquipmentSettings,
-  onGenerateCoachPlan,
-  onGenerateCoachVariation,
-  onClearCoachPlan,
   onUseSuggestion,
   onRemixSuggestion,
   onSwapSuggestionExercise,
@@ -3634,11 +3444,6 @@ function WorkoutGeneratorWorkspace({
   formState: WorkoutGeneratorFormState
   onInputChange: (field: keyof WorkoutGeneratorFormState, value: string) => void
   plan: WorkoutGeneratorPlan
-  coachResult: CoachPlanResult | null
-  coachConfigured: boolean
-  coachAssistantName: string
-  coachErrorMessage: string
-  coachIsLoading: boolean
   currentSnapshot: DailyLoadPoint | undefined
   ratioBand: RatioBand
   latestRecoveryEntry: RecoveryEntry | undefined
@@ -3649,9 +3454,6 @@ function WorkoutGeneratorWorkspace({
   homeEquipment: HomeEquipmentId[]
   customHomeEquipment: CustomHomeEquipment[]
   onOpenHomeEquipmentSettings: () => void
-  onGenerateCoachPlan: () => void
-  onGenerateCoachVariation: (suggestion: WorkoutSuggestion) => void
-  onClearCoachPlan: () => void
   onUseSuggestion: (suggestion: WorkoutSuggestion) => void
   onRemixSuggestion: (suggestion: WorkoutSuggestion) => void
   onSwapSuggestionExercise: (
@@ -3666,10 +3468,6 @@ function WorkoutGeneratorWorkspace({
   const recommendedSuggestion = plan.suggestions[0]
   const [expandedSuggestionId, setExpandedSuggestionId] =
     useState<WorkoutSuggestion['id']>('recommended')
-  const coachSourceLabel =
-    coachResult?.source === 'api'
-      ? coachResult.coachName
-      : 'Built-in coach plan'
   const homeEquipmentSummary = formatHomeEquipmentSummary(
     homeEquipment,
     customHomeEquipment,
@@ -3712,15 +3510,6 @@ function WorkoutGeneratorWorkspace({
               <span>Available time</span>
               <strong>{formatMinutes(preferredMinutes)}</strong>
               <small>recommendation updates instantly</small>
-            </div>
-            <div>
-              <span>Plan source</span>
-              <strong>{coachResult ? coachSourceLabel : 'Rules-based'}</strong>
-              <small>
-                {coachResult
-                  ? `generated ${formatCoachGeneratedAt(coachResult.generatedAt)}`
-                  : 'built instantly from your local training data'}
-              </small>
             </div>
           </div>
         </div>
@@ -3854,37 +3643,12 @@ function WorkoutGeneratorWorkspace({
                 <span>Recommended session load</span>
                 <strong>{formatLoad(recommendedSuggestion?.estimatedLoad ?? null)}</strong>
               </div>
-              <div className="entry-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={onGenerateCoachPlan}
-                  disabled={coachIsLoading}
-                >
-                  {coachIsLoading
-                    ? 'Generating coach plan...'
-                    : coachConfigured
-                      ? `Generate workout with ${coachAssistantName}`
-                      : 'Preview coach plan'}
-                </button>
-                {coachResult ? (
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={onClearCoachPlan}
-                  >
-                    Use rules-based plan
-                  </button>
-                ) : null}
-              </div>
+              <p className="generator-inline-note">
+                If the warm-up feels worse than expected, switch to the lower-load
+                option instead of forcing the day.
+              </p>
             </div>
 
-            <p className="generator-inline-note">
-              If the warm-up feels worse than expected, switch to the lower-load
-              option instead of forcing the day.
-            </p>
-
-            {coachErrorMessage ? <p className="form-error">{coachErrorMessage}</p> : null}
             {feedbackMessage ? <p className="form-success">{feedbackMessage}</p> : null}
           </form>
         </section>
@@ -3933,80 +3697,13 @@ function WorkoutGeneratorWorkspace({
           <div className="section-heading">
             <div>
               <p className="section-kicker">Coach notes</p>
-              <h2>
-                {coachResult ? 'Coach analysis and next steps' : "How to use today's recommendation"}
-              </h2>
+              <h2>How to use today's recommendation</h2>
             </div>
             <p>
-              {coachResult
-                ? 'The coach can generate a full workout or a fresh variation, while the app still clamps the final plan to your local readiness signals.'
-                : 'The rules below explain why the generator is nudging the session up or down today.'}
+              The rules below explain why the generator is nudging the session up
+              or down today.
             </p>
           </div>
-
-          {coachResult ? (
-            <>
-              <div className="generator-coach-status">
-                <div className="generator-coach-status-copy">
-                  <span className="generator-card-label">{coachSourceLabel}</span>
-                  <p>
-                    {coachResult.source === 'api'
-                      ? 'This plan was generated by your external API-backed coach endpoint, then checked against the local intensity guardrails.'
-                      : 'This is the built-in coaching fallback layered on top of the local generator.'}
-                  </p>
-                </div>
-                <span className="generator-coach-timestamp">
-                  {formatCoachGeneratedAt(coachResult.generatedAt)}
-                </span>
-              </div>
-
-              <div className="generator-adjustment-grid">
-                {coachResult.insights.map((insight) => (
-                  <article key={insight} className="generator-adjustment-card">
-                    <span className="generator-adjustment-dot" aria-hidden="true" />
-                    <p>{insight}</p>
-                  </article>
-                ))}
-              </div>
-
-              <div className="generator-coach-grid">
-                <article className="generator-coach-card">
-                  <p className="generator-card-section-title">Recovery recommendation</p>
-                  <div className="generator-coach-list">
-                    {coachResult.recoveryRecommendations.map((recommendation) => (
-                      <p key={recommendation}>{recommendation}</p>
-                    ))}
-                  </div>
-                </article>
-
-                <article className="generator-coach-card">
-                  <p className="generator-card-section-title">Fueling recommendation</p>
-                  <div className="generator-coach-list">
-                    {coachResult.nutritionRecommendations.map((recommendation) => (
-                      <p key={recommendation}>{recommendation}</p>
-                    ))}
-                  </div>
-                </article>
-
-                <article className="generator-coach-card">
-                  <p className="generator-card-section-title">Weekly focus</p>
-                  <div className="generator-coach-list">
-                    <p>{coachResult.weeklyFocus}</p>
-                  </div>
-                </article>
-              </div>
-
-              {coachResult.warnings.length ? (
-                <div className="generator-coach-warning-list">
-                  {coachResult.warnings.map((warning) => (
-                    <p key={warning} className="generator-card-collapsed-copy">
-                      {warning}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : null}
 
           <div className="generator-adjustment-grid">
             {plan.adjustments.map((adjustment) => (
@@ -4015,19 +3712,6 @@ function WorkoutGeneratorWorkspace({
                 <p>{adjustment}</p>
               </article>
             ))}
-          </div>
-
-          <div className="generator-adjustment-grid">
-            {coachResult ? (
-              <article className="generator-adjustment-card">
-                <span className="generator-adjustment-dot" aria-hidden="true" />
-                <p>
-                  The rules-based guardrails still stay active underneath the
-                  coach-generated plan, so the session stays tied to your current load,
-                  recovery, and fueling context.
-                </p>
-              </article>
-            ) : null}
           </div>
 
           <p className="trend-footnote">
@@ -4108,22 +3792,10 @@ function WorkoutGeneratorWorkspace({
                       <div className="generator-card-toolbar">
                         <button
                           type="button"
-                          className="secondary-button generator-inline-action"
-                          onClick={() => onGenerateCoachVariation(suggestion)}
-                          disabled={coachIsLoading}
-                        >
-                          {coachIsLoading
-                            ? 'Generating variation...'
-                            : coachConfigured
-                              ? 'Coach variation'
-                              : 'Preview coach variation'}
-                        </button>
-                        <button
-                          type="button"
                           className="ghost-button generator-inline-action"
                           onClick={() => onRemixSuggestion(suggestion)}
                         >
-                          Quick local remix
+                          New workout variation
                         </button>
                       </div>
 
@@ -4222,15 +3894,9 @@ function WorkoutGeneratorWorkspace({
 }
 
 function SettingsWorkspace({
-  athleteProfile,
-  coachConfig,
   homeEquipment,
   customHomeEquipment,
   customEquipmentFormState,
-  onAthleteProfileChange,
-  onCoachConfigChange,
-  onApplyLocalApiCoachPreset,
-  onResetCoachConfig,
   onCustomEquipmentInputChange,
   onAddCustomHomeEquipment,
   onRemoveCustomHomeEquipment,
@@ -4239,18 +3905,9 @@ function SettingsWorkspace({
   onOpenWorkoutGenerator,
   errorMessage,
 }: {
-  athleteProfile: AthleteProfile
-  coachConfig: CoachConfig
   homeEquipment: HomeEquipmentId[]
   customHomeEquipment: CustomHomeEquipment[]
   customEquipmentFormState: CustomHomeEquipmentFormState
-  onAthleteProfileChange: (
-    field: keyof AthleteProfile,
-    value: string | number,
-  ) => void
-  onCoachConfigChange: (field: keyof CoachConfig, value: string | number) => void
-  onApplyLocalApiCoachPreset: () => void
-  onResetCoachConfig: () => void
   onCustomEquipmentInputChange: (
     field: keyof CustomHomeEquipmentFormState,
     value: string,
@@ -4266,10 +3923,6 @@ function SettingsWorkspace({
     homeEquipment,
     customHomeEquipment,
   )
-  const trainingAgeOption = getAthleteTrainingAgeOption(athleteProfile.trainingAge)
-  const primaryGoalOption = getAthletePrimaryGoalOption(athleteProfile.primaryGoal)
-  const coachConfigured = Boolean(coachConfig.endpointUrl.trim())
-  const localApiCoachPresetActive = isLocalApiCoachPresetActive(coachConfig)
   const selectedEquipment = homeEquipment.map((equipmentId) =>
     getHomeEquipmentOption(equipmentId),
   )
@@ -4278,10 +3931,10 @@ function SettingsWorkspace({
     <div className="content-shell">
       <header className="content-header">
         <p className="eyebrow">Settings</p>
-        <h1>Save the context your coach should use.</h1>
+        <h1>Dial in the equipment you have at home.</h1>
         <p className="content-summary">
-          Keep your athlete profile, API coach endpoint, and home setup current so
-          the workout generator can stay personal instead of generic.
+          The workout generator uses this list whenever you choose the home
+          format, so the suggested exercises match what is actually available.
         </p>
       </header>
 
@@ -4297,27 +3950,10 @@ function SettingsWorkspace({
           </div>
           <div className="hero-metadata">
             <div>
-              <span>Training age</span>
-              <strong>{trainingAgeOption.label}</strong>
-              <small>{trainingAgeOption.summary}</small>
-            </div>
-            <div>
-              <span>Primary goal</span>
-              <strong>{primaryGoalOption.label}</strong>
-              <small>{primaryGoalOption.summary}</small>
-            </div>
-            <div>
-              <span>Coach endpoint</span>
-              <strong>{coachConfigured ? 'Connected' : 'Fallback only'}</strong>
-              <small>
-                {coachConfigured
-                  ? 'the workout generator can call your external AI coach service'
-                  : 'the app will stay on the built-in coach plan until you add an endpoint'}
-              </small>
-            </div>
-            <div>
               <span>Preset gear</span>
-              <strong>{selectedEquipment.length}</strong>
+              <strong>
+                {selectedEquipment.length}
+              </strong>
               <small>built-in equipment options you have toggled on</small>
             </div>
             <div>
@@ -4360,233 +3996,6 @@ function SettingsWorkspace({
 
       <main className="workspace">
         <section className="entry-panel section-panel">
-          <section className="settings-profile-section">
-            <div className="section-heading">
-              <div>
-                <p className="section-kicker">Athlete profile</p>
-                <h2>Give the coach real context</h2>
-              </div>
-              <p>
-                Everything here is stored locally in this browser and included in
-                future coach requests.
-              </p>
-            </div>
-
-            <form className="entry-form" onSubmit={(event) => event.preventDefault()}>
-              <div className="entry-grid">
-                <label>
-                  Athlete name
-                  <input
-                    type="text"
-                    value={athleteProfile.name}
-                    placeholder="Optional"
-                    onChange={(event) =>
-                      onAthleteProfileChange('name', event.currentTarget.value)
-                    }
-                  />
-                </label>
-
-                <label>
-                  Training age
-                  <select
-                    value={athleteProfile.trainingAge}
-                    onChange={(event) =>
-                      onAthleteProfileChange('trainingAge', event.currentTarget.value)
-                    }
-                  >
-                    {ATHLETE_TRAINING_AGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Primary goal
-                  <select
-                    value={athleteProfile.primaryGoal}
-                    onChange={(event) =>
-                      onAthleteProfileChange('primaryGoal', event.currentTarget.value)
-                    }
-                  >
-                    {ATHLETE_PRIMARY_GOAL_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Weekly availability
-                  <input
-                    type="number"
-                    min="1"
-                    max="14"
-                    value={athleteProfile.weeklyAvailability}
-                    onChange={(event) =>
-                      onAthleteProfileChange(
-                        'weeklyAvailability',
-                        event.currentTarget.value,
-                      )
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="entry-grid settings-profile-grid">
-                <label>
-                  Session preference
-                  <textarea
-                    rows={3}
-                    value={athleteProfile.sessionPreference}
-                    placeholder="Example: 45-60 minute sessions, 2 lift days + 2 cardio days"
-                    onChange={(event) =>
-                      onAthleteProfileChange(
-                        'sessionPreference',
-                        event.currentTarget.value,
-                      )
-                    }
-                  />
-                </label>
-
-                <label>
-                  Exercise preferences
-                  <textarea
-                    rows={3}
-                    value={athleteProfile.preferences}
-                    placeholder="Example: likes dumbbell circuits, prefers bike over running"
-                    onChange={(event) =>
-                      onAthleteProfileChange('preferences', event.currentTarget.value)
-                    }
-                  />
-                </label>
-
-                <label>
-                  Limitations or injuries
-                  <textarea
-                    rows={3}
-                    value={athleteProfile.limitations}
-                    placeholder="Example: right knee gets cranky on deep lunges"
-                    onChange={(event) =>
-                      onAthleteProfileChange('limitations', event.currentTarget.value)
-                    }
-                  />
-                </label>
-
-                <label>
-                  Extra coaching notes
-                  <textarea
-                    rows={3}
-                    value={athleteProfile.notes}
-                    placeholder="Anything else the coach should remember"
-                    onChange={(event) =>
-                      onAthleteProfileChange('notes', event.currentTarget.value)
-                    }
-                  />
-                </label>
-              </div>
-            </form>
-          </section>
-
-          <section className="settings-connection-section">
-            <div className="section-heading">
-              <div>
-                <p className="section-kicker">API coach connection</p>
-                <h2>Point the app at your coaching endpoint</h2>
-              </div>
-              <p>
-                This app is static, so it calls the configured endpoint directly
-                from the browser. Keep secrets on your own proxy or agent service.
-              </p>
-            </div>
-
-            <form className="entry-form" onSubmit={(event) => event.preventDefault()}>
-              <div className="settings-connection-preset">
-                <div className="settings-connection-preset-copy">
-                  <strong>Local API preset</strong>
-                  <p>
-                    Use this when your local coach proxy is running with an API
-                    key on this machine.
-                  </p>
-                </div>
-                <div className="settings-connection-actions">
-                  <button
-                    type="button"
-                    className={
-                      localApiCoachPresetActive
-                        ? 'primary-button'
-                        : 'secondary-button'
-                    }
-                    onClick={onApplyLocalApiCoachPreset}
-                  >
-                    {localApiCoachPresetActive
-                      ? 'Local preset active'
-                      : 'Use local preset'}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={onResetCoachConfig}
-                    disabled={isDefaultCoachConfigActive(coachConfig)}
-                  >
-                    Reset connection
-                  </button>
-                </div>
-              </div>
-
-              <div className="entry-grid settings-connection-grid">
-                <label>
-                  Coach label
-                  <input
-                    type="text"
-                    value={coachConfig.assistantName}
-                    placeholder="AI Coach"
-                    onChange={(event) =>
-                      onCoachConfigChange('assistantName', event.currentTarget.value)
-                    }
-                  />
-                </label>
-
-                <label>
-                  Request timeout (ms)
-                  <input
-                    type="number"
-                    min="3000"
-                    max="60000"
-                    step="1000"
-                    value={coachConfig.requestTimeoutMs}
-                    onChange={(event) =>
-                      onCoachConfigChange(
-                        'requestTimeoutMs',
-                        event.currentTarget.value,
-                      )
-                    }
-                  />
-                </label>
-              </div>
-
-              <label>
-                Endpoint URL
-                <input
-                  type="url"
-                  value={coachConfig.endpointUrl}
-                  placeholder="https://your-api-coach-service.example.com/coach"
-                  onChange={(event) =>
-                    onCoachConfigChange('endpointUrl', event.currentTarget.value)
-                  }
-                />
-              </label>
-
-              <p className="generator-card-collapsed-copy">
-                {localApiCoachPresetActive
-                  ? 'Local API preset is active. Keep the local coach proxy running before you generate a coach-guided workout from this browser.'
-                  : 'If you leave the endpoint blank, the app still works and uses the built-in coaching fallback on top of the rules-based generator.'}
-              </p>
-            </form>
-          </section>
-
           <div className="section-heading">
             <div>
               <p className="section-kicker">Equipment list</p>
@@ -4876,12 +4285,6 @@ function App() {
   const [customHomeEquipment, setCustomHomeEquipment] = useState<
     CustomHomeEquipment[]
   >(() => loadStoredCustomHomeEquipment())
-  const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() =>
-    loadStoredAthleteProfile(),
-  )
-  const [coachConfig, setCoachConfig] = useState<CoachConfig>(() =>
-    loadStoredCoachConfig(),
-  )
   const [activeSection, setActiveSection] = useState<AppSectionId>('dashboard')
   const [formState, setFormState] = useState<SessionFormState>(() =>
     createEmptyFormState(),
@@ -4911,18 +4314,10 @@ function App() {
       contextKey: '',
       suggestions: {},
     })
-  const [coachPlanState, setCoachPlanState] = useState<CoachPlanState>({
-    contextKey: '',
-    result: null,
-    isLoading: false,
-    errorMessage: '',
-  })
   const [nutritionTargetsErrorMessage, setNutritionTargetsErrorMessage] =
     useState('')
   const [homeEquipmentErrorMessage, setHomeEquipmentErrorMessage] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const coachRequestAbortRef = useRef<AbortController | null>(null)
-  const coachRequestIdRef = useRef(0)
 
   const deferredSessions = useDeferredValue(sessions)
   const deferredRecoveryEntries = useDeferredValue(recoveryEntries)
@@ -5010,10 +4405,6 @@ function App() {
     (total, point) => total + point.sessionCount,
     0,
   )
-  const homeEquipmentSummary = formatHomeEquipmentSummary(
-    homeEquipment,
-    customHomeEquipment,
-  )
   const workoutGeneratorAvailableMinutes =
     parsePositiveNumber(workoutGeneratorFormState.availableMinutes) ?? 45
   const workoutGeneratorInput: WorkoutGeneratorInput = {
@@ -5029,28 +4420,14 @@ function App() {
     customHomeEquipment,
   }
   const workoutGeneratorContextKey = JSON.stringify(workoutGeneratorInput)
-  const coachContextKey = JSON.stringify({
-    workoutGeneratorInput,
-    athleteProfile,
-    coachAssistantName: coachConfig.assistantName,
-    coachEndpointUrl: coachConfig.endpointUrl.trim(),
-  })
   const baseWorkoutGeneratorPlan = buildWorkoutGeneratorPlan(workoutGeneratorInput)
-  const activeCoachResult =
-    coachPlanState.contextKey === coachContextKey
-      ? coachPlanState.result
-      : null
-  const resolvedWorkoutGeneratorPlan = activeCoachResult?.plan ?? baseWorkoutGeneratorPlan
-  const workoutSuggestionContextKey = activeCoachResult
-    ? `${workoutGeneratorContextKey}:${activeCoachResult.generatedAt}`
-    : `${workoutGeneratorContextKey}:rules`
   const workoutSuggestionOverrides =
-    workoutSuggestionOverrideState.contextKey === workoutSuggestionContextKey
+    workoutSuggestionOverrideState.contextKey === workoutGeneratorContextKey
       ? workoutSuggestionOverrideState.suggestions
       : {}
   const workoutGeneratorPlan: WorkoutGeneratorPlan = {
-    ...resolvedWorkoutGeneratorPlan,
-    suggestions: resolvedWorkoutGeneratorPlan.suggestions.map(
+    ...baseWorkoutGeneratorPlan,
+    suggestions: baseWorkoutGeneratorPlan.suggestions.map(
       (suggestion) => workoutSuggestionOverrides[suggestion.id] ?? suggestion,
     ),
   }
@@ -5093,27 +4470,6 @@ function App() {
       JSON.stringify(customHomeEquipment),
     )
   }, [customHomeEquipment])
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      ATHLETE_PROFILE_STORAGE_KEY,
-      JSON.stringify(athleteProfile),
-    )
-  }, [athleteProfile])
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      COACH_CONFIG_STORAGE_KEY,
-      JSON.stringify(coachConfig),
-    )
-  }, [coachConfig])
-
-  useEffect(
-    () => () => {
-      coachRequestAbortRef.current?.abort()
-    },
-    [],
-  )
 
   useEffect(() => {
     if (!isSidebarOpen) {
@@ -5168,92 +4524,19 @@ function App() {
     value: string,
   ) => {
     setWorkoutGeneratorMessage('')
-    setCoachPlanState((current) => ({
-      ...current,
-      errorMessage: '',
-    }))
     setWorkoutGeneratorFormState((current) => ({
       ...current,
       [field]: value as WorkoutGeneratorFormState[typeof field],
     }))
   }
 
-  const handleAthleteProfileChange = (
-    field: keyof AthleteProfile,
-    value: string | number,
-  ) => {
-    setAthleteProfile((current) => {
-      if (field === 'weeklyAvailability') {
-        const nextValue =
-          typeof value === 'number' ? value : Number.parseInt(String(value), 10)
-
-        return {
-          ...current,
-          weeklyAvailability: Number.isFinite(nextValue)
-            ? Math.min(14, Math.max(1, nextValue))
-            : current.weeklyAvailability,
-        }
-      }
-
-      return {
-        ...current,
-        [field]: value as AthleteProfile[typeof field],
-      }
-    })
-  }
-
-  const handleCoachConfigChange = (
-    field: keyof CoachConfig,
-    value: string | number,
-  ) => {
-    setCoachPlanState((current) => ({
-      ...current,
-      errorMessage: '',
-    }))
-
-    setCoachConfig((current) => {
-      if (field === 'requestTimeoutMs') {
-        const nextValue =
-          typeof value === 'number' ? value : Number.parseInt(String(value), 10)
-
-        return {
-          ...current,
-          requestTimeoutMs: Number.isFinite(nextValue)
-            ? Math.min(60_000, Math.max(3_000, nextValue))
-            : current.requestTimeoutMs,
-        }
-      }
-
-      return {
-        ...current,
-        [field]: value as CoachConfig[typeof field],
-      }
-    })
-  }
-
-  const handleApplyLocalApiCoachPreset = () => {
-    setCoachPlanState((current) => ({
-      ...current,
-      errorMessage: '',
-    }))
-    setCoachConfig(LOCAL_API_COACH_PRESET)
-  }
-
-  const handleResetCoachConfig = () => {
-    setCoachPlanState((current) => ({
-      ...current,
-      errorMessage: '',
-    }))
-    setCoachConfig(DEFAULT_COACH_CONFIG)
-  }
-
   const handleRemixWorkoutSuggestion = (suggestion: WorkoutSuggestion) => {
     setWorkoutGeneratorMessage('')
     startTransition(() => {
       setWorkoutSuggestionOverrideState((current) => ({
-        contextKey: workoutSuggestionContextKey,
+        contextKey: workoutGeneratorContextKey,
         suggestions: {
-          ...(current.contextKey === workoutSuggestionContextKey
+          ...(current.contextKey === workoutGeneratorContextKey
             ? current.suggestions
             : {}),
           [suggestion.id]: createWorkoutSuggestionVariation(
@@ -5272,9 +4555,9 @@ function App() {
     setWorkoutGeneratorMessage('')
     startTransition(() => {
       setWorkoutSuggestionOverrideState((current) => ({
-        contextKey: workoutSuggestionContextKey,
+        contextKey: workoutGeneratorContextKey,
         suggestions: {
-          ...(current.contextKey === workoutSuggestionContextKey
+          ...(current.contextKey === workoutGeneratorContextKey
             ? current.suggestions
             : {}),
           [suggestion.id]: swapWorkoutSuggestionExercise(
@@ -5295,132 +4578,6 @@ function App() {
       ...current,
       [field]: value,
     }))
-  }
-
-  const runCoachRequest = async (
-    requestContext: CoachContext,
-    successMessage = '',
-  ) => {
-    const effectiveCoachTimeoutMs = getEffectiveCoachTimeoutMs(coachConfig)
-
-    coachRequestAbortRef.current?.abort()
-    const controller = new AbortController()
-    const timeoutId = window.setTimeout(() => controller.abort(), effectiveCoachTimeoutMs)
-    const requestId = coachRequestIdRef.current + 1
-    coachRequestIdRef.current = requestId
-    coachRequestAbortRef.current = controller
-
-    setWorkoutGeneratorMessage('')
-    setCoachPlanState((current) => ({
-      ...current,
-      contextKey: coachContextKey,
-      isLoading: true,
-      errorMessage: '',
-      result:
-        current.contextKey === coachContextKey ? current.result : null,
-    }))
-
-    try {
-      const result = await requestCoachPlan(
-        coachConfig,
-        requestContext,
-        controller.signal,
-      )
-
-      if (coachRequestIdRef.current !== requestId) {
-        return
-      }
-
-      startTransition(() => {
-        setCoachPlanState({
-          contextKey: coachContextKey,
-          result,
-          isLoading: false,
-          errorMessage: '',
-        })
-        setWorkoutSuggestionOverrideState({
-          contextKey: '',
-          suggestions: {},
-        })
-        setWorkoutGeneratorMessage(successMessage)
-      })
-    } catch (error) {
-      if (coachRequestIdRef.current !== requestId) {
-        return
-      }
-
-      const errorMessage =
-        error instanceof DOMException && error.name === 'AbortError'
-          ? `${coachConfig.assistantName} timed out after ${Math.round(
-              effectiveCoachTimeoutMs / 1_000,
-            )} seconds.`
-          : `Something went wrong while calling ${coachConfig.assistantName}.`
-
-      setCoachPlanState((current) => ({
-        ...current,
-        isLoading: false,
-        errorMessage,
-      }))
-    } finally {
-      window.clearTimeout(timeoutId)
-
-      if (coachRequestAbortRef.current === controller) {
-        coachRequestAbortRef.current = null
-      }
-    }
-  }
-
-  const handleGenerateCoachPlan = async () => {
-    await runCoachRequest(
-      buildCoachContext({
-        athleteProfile,
-        workoutInput: workoutGeneratorInput,
-        basePlan: baseWorkoutGeneratorPlan,
-        currentRatio: currentSnapshot?.ratio ?? null,
-        baselineReady: currentSnapshot?.baselineReady ?? false,
-        recentSessions,
-        latestRecoveryEntry,
-        latestNutritionEntry,
-        nutritionTargets,
-        equipmentSummary: homeEquipmentSummary,
-      }),
-    )
-  }
-
-  const handleGenerateCoachVariation = async (suggestion: WorkoutSuggestion) => {
-    await runCoachRequest(
-      buildCoachContext({
-        athleteProfile,
-        workoutInput: workoutGeneratorInput,
-        basePlan: resolvedWorkoutGeneratorPlan,
-        currentRatio: currentSnapshot?.ratio ?? null,
-        baselineReady: currentSnapshot?.baselineReady ?? false,
-        recentSessions,
-        latestRecoveryEntry,
-        latestNutritionEntry,
-        nutritionTargets,
-        equipmentSummary: homeEquipmentSummary,
-        requestIntent: 'variation',
-        variationTarget: suggestion,
-      }),
-      `${coachConfig.assistantName} created a fresh variation for ${suggestion.title} without exceeding today's intensity guardrails.`,
-    )
-  }
-
-  const handleClearCoachPlan = () => {
-    coachRequestAbortRef.current?.abort()
-    coachRequestAbortRef.current = null
-    coachRequestIdRef.current += 1
-    setCoachPlanState((current) => ({
-      ...current,
-      result: null,
-      isLoading: false,
-      errorMessage: '',
-    }))
-    setWorkoutSuggestionOverrideState({
-      contextKey: '',
-      suggestions: {},
-    })
   }
 
   const handleToggleHomeEquipment = (equipmentId: HomeEquipmentId) => {
@@ -5702,11 +4859,6 @@ function App() {
       notes: [
         `Format: ${getWorkoutModeOption(workoutGeneratorFormState.mode).label}.`,
         `Generator: ${suggestion.label}.`,
-        activeCoachResult
-          ? `Coach source: ${activeCoachResult.coachName} (${activeCoachResult.source}) generated ${formatCoachGeneratedAt(
-              activeCoachResult.generatedAt,
-            )}.`
-          : 'Coach source: built-in rules-based generator.',
         workoutGeneratorFormState.mode === 'home'
           ? `Home equipment: ${formatHomeEquipmentSummary(
               homeEquipment,
@@ -5717,9 +4869,6 @@ function App() {
         `Exercises: ${exerciseDetails}`,
         `Fueling: ${suggestion.fueling}`,
         `Caution: ${suggestion.caution}`,
-        activeCoachResult?.weeklyFocus
-          ? `Weekly focus: ${activeCoachResult.weeklyFocus}`
-          : null,
       ]
         .filter((note): note is string => Boolean(note))
         .join(' '),
@@ -5964,15 +5113,9 @@ function App() {
           />
         ) : activeSection === 'settings' ? (
           <SettingsWorkspace
-            athleteProfile={athleteProfile}
-            coachConfig={coachConfig}
             homeEquipment={homeEquipment}
             customHomeEquipment={customHomeEquipment}
             customEquipmentFormState={customEquipmentFormState}
-            onAthleteProfileChange={handleAthleteProfileChange}
-            onCoachConfigChange={handleCoachConfigChange}
-            onApplyLocalApiCoachPreset={handleApplyLocalApiCoachPreset}
-            onResetCoachConfig={handleResetCoachConfig}
             onCustomEquipmentInputChange={handleCustomHomeEquipmentInputChange}
             onAddCustomHomeEquipment={handleAddCustomHomeEquipment}
             onRemoveCustomHomeEquipment={handleRemoveCustomHomeEquipment}
@@ -5991,11 +5134,6 @@ function App() {
             formState={workoutGeneratorFormState}
             onInputChange={handleWorkoutGeneratorInputChange}
             plan={workoutGeneratorPlan}
-            coachResult={activeCoachResult}
-            coachConfigured={Boolean(coachConfig.endpointUrl.trim())}
-            coachAssistantName={coachConfig.assistantName}
-            coachErrorMessage={coachPlanState.errorMessage}
-            coachIsLoading={coachPlanState.isLoading}
             currentSnapshot={currentSnapshot}
             ratioBand={ratioBand}
             latestRecoveryEntry={latestRecoveryEntry}
@@ -6006,9 +5144,6 @@ function App() {
             homeEquipment={homeEquipment}
             customHomeEquipment={customHomeEquipment}
             onOpenHomeEquipmentSettings={() => handleSelectSection('settings')}
-            onGenerateCoachPlan={handleGenerateCoachPlan}
-            onGenerateCoachVariation={handleGenerateCoachVariation}
-            onClearCoachPlan={handleClearCoachPlan}
             onUseSuggestion={handleUseGeneratedWorkout}
             onRemixSuggestion={handleRemixWorkoutSuggestion}
             onSwapSuggestionExercise={handleSwapWorkoutSuggestionExercise}

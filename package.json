@@ -7,10 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "coach-proxy": "node scripts/coach-proxy.mjs",
-    "coach-proxy:openai": "node scripts/coach-proxy.mjs",
-    "coach-proxy:minimax": "node scripts/coach-proxy.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^19.2.4",
