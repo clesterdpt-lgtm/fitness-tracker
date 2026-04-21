@@ -176,7 +176,7 @@ const APP_SECTIONS: AppSection[] = [
     id: 'dashboard',
     label: 'Dashboard',
     eyebrow: 'Live workspace',
-    summary: 'Daily snapshot across workload, recovery, generator, and nutrition.',
+    summary: 'Daily snapshot across workload, recovery, and nutrition.',
     badge: 'Live',
   },
   {
@@ -194,24 +194,10 @@ const APP_SECTIONS: AppSection[] = [
     badge: 'Live',
   },
   {
-    id: 'workout-generator',
-    label: 'Workout Generator',
-    eyebrow: 'Live workspace',
-    summary: "Generate today's session from goal, time, and readiness.",
-    badge: 'Live',
-  },
-  {
     id: 'nutrition',
     label: 'Nutrition',
     eyebrow: 'Live workspace',
     summary: 'Daily targets, intake logging, and nutrition trend summaries.',
-    badge: 'Live',
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    eyebrow: 'Live workspace',
-    summary: 'Set up the equipment available for home workouts and generator preferences.',
     badge: 'Live',
   },
 ]
@@ -2143,7 +2129,7 @@ function Sidebar({
                 : ratioBand.detail}
         </p>
         {isDashboard ? (
-          <p>Start broad, then dive into workload, recovery, nutrition, or the generator.</p>
+          <p>Start broad, then dive into workload, recovery, or nutrition.</p>
         ) : null}
         {isRecovery ? (
           <p>{recoveryCheckIns}/7 morning check-ins logged this week.</p>
@@ -2230,7 +2216,6 @@ function DashboardWorkspace({
   nutritionAverage,
   nutritionBand,
   nutritionLogCount,
-  workoutGeneratorPlan,
   onOpenSection,
 }: {
   currentSnapshot: DailyLoadPoint | undefined
@@ -2245,11 +2230,8 @@ function DashboardWorkspace({
   nutritionAverage: number | null
   nutritionBand: NutritionBand
   nutritionLogCount: number
-  workoutGeneratorPlan: WorkoutGeneratorPlan
   onOpenSection: (section: AppSectionId) => void
 }) {
-  const recommendedSuggestion = workoutGeneratorPlan.suggestions[0]
-
   return (
     <div className="content-shell">
       <header className="content-header">
@@ -2257,8 +2239,8 @@ function DashboardWorkspace({
         <h1>See every training signal in one place.</h1>
         <p className="content-summary">
           Use this overview as your daily starting point, then jump straight
-          into workload, recovery, nutrition, or the workout generator from the
-          section that needs attention.
+          into workload, recovery, or nutrition from the section that needs
+          attention.
         </p>
       </header>
 
@@ -2291,21 +2273,25 @@ function DashboardWorkspace({
 
         <aside className="hero-focus">
           <div className="dashboard-focus">
-            <p className="section-kicker">Next move</p>
-            <h2>{recommendedSuggestion.title}</h2>
-            <p className="hero-focus-summary">{workoutGeneratorPlan.headline}</p>
+            <p className="section-kicker">Tracking coverage</p>
+            <h2>Keep the baseline and daily logs current</h2>
+            <p className="hero-focus-summary">
+              {baselineProgress < 28
+                ? `${baselineProgress}/28 baseline days collected so far.`
+                : 'Four-week workload baseline is ready.'}
+            </p>
             <p className="hero-focus-detail">
-              {formatMinutes(recommendedSuggestion.duration)} at RPE{' '}
-              {formatRpe(recommendedSuggestion.rpe)} for an estimated load of{' '}
-              {formatLoad(recommendedSuggestion.estimatedLoad)}.
+              {weeklySessionCount} sessions, {recoveryCheckIns}/7 recovery
+              check-ins, and {nutritionLogCount}/7 nutrition logs tracked this
+              week.
             </p>
             <div className="entry-actions">
               <button
                 type="button"
                 className="primary-button"
-                onClick={() => onOpenSection('workout-generator')}
+                onClick={() => onOpenSection('workload')}
               >
-                Open workout generator
+                Open workload
               </button>
             </div>
           </div>
@@ -2410,33 +2396,6 @@ function DashboardWorkspace({
           ]}
           tone={nutritionBand.color}
           actionLabel="Open nutrition"
-          onOpen={onOpenSection}
-        />
-
-        <DashboardSnapshotCard
-          section="workout-generator"
-          kicker="Workout generator"
-          title={recommendedSuggestion.title}
-          summary={workoutGeneratorPlan.detail}
-          metrics={[
-            {
-              label: 'Duration',
-              value: formatMinutes(recommendedSuggestion.duration),
-              detail: recommendedSuggestion.label.toLowerCase(),
-            },
-            {
-              label: 'Target RPE',
-              value: formatRpe(recommendedSuggestion.rpe),
-              detail: workoutGeneratorPlan.readiness.label.toLowerCase(),
-            },
-            {
-              label: 'Estimated load',
-              value: formatLoad(recommendedSuggestion.estimatedLoad),
-              detail: 'ready to log',
-            },
-          ]}
-          tone={workoutGeneratorPlan.readiness.color}
-          actionLabel="Open generator"
           onOpen={onOpenSection}
         />
       </section>
@@ -5046,7 +5005,6 @@ function App() {
             nutritionAverage={nutritionAverage}
             nutritionBand={nutritionBand}
             nutritionLogCount={nutritionLogCount}
-            workoutGeneratorPlan={workoutGeneratorPlan}
             onOpenSection={handleSelectSection}
           />
         ) : activeSection === 'workload' ? (
