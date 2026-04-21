@@ -8,6 +8,29 @@ import {
 } from 'react'
 import './App.css'
 import {
+  buildInjurySeries,
+  calculateInjuryAvailabilityScore,
+  createDemoInjuryCases,
+  createDemoInjuryCheckIns,
+  getActiveInjuryCount,
+  getInjuryAverage,
+  getInjuryBand,
+  getInjuryCheckInCount,
+  getLatestInjuryCheckIn,
+  getMostLimitingInjury,
+  sortInjuryCases,
+  sortInjuryCheckIns,
+  INJURY_BODY_AREA_OPTIONS,
+  INJURY_SIDE_OPTIONS,
+  type InjuryBand,
+  type InjuryBodyArea,
+  type InjuryCase,
+  type InjuryCaseStatus,
+  type InjuryCheckIn,
+  type InjuryDailyPoint,
+  type InjurySide,
+} from './lib/injury'
+import {
   buildNutritionSeries,
   calculateNutritionScore,
   createDemoNutritionEntries,
@@ -79,6 +102,24 @@ type RecoveryMetricFieldKey =
   | 'stress'
   | 'hydration'
 
+type InjuryCaseFormState = {
+  name: string
+  bodyArea: InjuryBodyArea
+  side: InjurySide
+  onsetDate: string
+  notes: string
+}
+
+type InjuryCheckInFormState = {
+  injuryId: string
+  date: string
+  painAtRest: string
+  painWithTraining: string
+  confidenceToTrain: string
+  modifiedTraining: boolean
+  notes: string
+}
+
 type RecoveryFormState = {
   date: string
   sleepHours: string
@@ -134,6 +175,7 @@ type AppSectionId =
   | 'dashboard'
   | 'workload'
   | 'recovery'
+  | 'injury'
   | 'workout-generator'
   | 'nutrition'
   | 'settings'
@@ -156,6 +198,8 @@ type RecoveryMetricConfig = {
 
 const WORKLOAD_STORAGE_KEY = 'fitness-tracker.acwr.v1'
 const RECOVERY_STORAGE_KEY = 'fitness-tracker.recovery.v1'
+const INJURY_CASES_STORAGE_KEY = 'fitness-tracker.injury-cases.v1'
+const INJURY_CHECK_INS_STORAGE_KEY = 'fitness-tracker.injury-check-ins.v1'
 const NUTRITION_STORAGE_KEY = 'fitness-tracker.nutrition.v1'
 const NUTRITION_TARGETS_STORAGE_KEY = 'fitness-tracker.nutrition-targets.v1'
 const HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.home-equipment.v1'
@@ -176,7 +220,7 @@ const APP_SECTIONS: AppSection[] = [
     id: 'dashboard',
     label: 'Dashboard',
     eyebrow: 'Live workspace',
-    summary: 'Daily snapshot across workload, recovery, and nutrition.',
+    summary: 'Daily snapshot across workload, recovery, injury, and nutrition.',
     badge: 'Live',
   },
   {
@@ -191,6 +235,13 @@ const APP_SECTIONS: AppSection[] = [
     label: 'Recovery',
     eyebrow: 'Live workspace',
     summary: 'Morning check-ins, readiness score, and recovery trends.',
+    badge: 'Live',
+  },
+  {
+    id: 'injury',
+    label: 'Injury',
+    eyebrow: 'Live workspace',
+    summary: 'Active issues, daily symptom check-ins, and training impact.',
     badge: 'Live',
   },
   {
@@ -466,6 +517,33 @@ function createEmptyRecoveryFormState(date = formatDateInput()): RecoveryFormSta
   }
 }
 
+function createEmptyInjuryCaseFormState(
+  onsetDate = formatDateInput(),
+): InjuryCaseFormState {
+  return {
+    name: '',
+    bodyArea: 'knee',
+    side: 'left',
+    onsetDate,
+    notes: '',
+  }
+}
+
+function createEmptyInjuryCheckInFormState(
+  date = formatDateInput(),
+  injuryId = '',
+): InjuryCheckInFormState {
+  return {
+    injuryId,
+    date,
+    painAtRest: '1',
+    painWithTraining: '3',
+    confidenceToTrain: '3',
+    modifiedTraining: false,
+    notes: '',
+  }
+}
+
 function createEmptyNutritionFormState(date = formatDateInput()): NutritionFormState {
   return {
     date,
@@ -528,6 +606,30 @@ function parseScaleNumber(value: string) {
   return Math.min(5, Math.max(1, Math.round(parsed)))
 }
 
+function parsePainNumber(value: string) {
+  if (!value.trim() && value !== '0') {
+    return null
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return Math.min(10, Math.max(0, Math.round(parsed)))
+}
+
+function parseConfidenceNumber(value: string) {
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return Math.min(5, Math.max(1, Math.round(parsed)))
+}
+
 function formatLoad(value: number | null) {
   return value === null ? 'Not ready' : numberFormatter.format(value)
 }
@@ -538,6 +640,18 @@ function formatRatio(value: number | null) {
 
 function formatRecoveryScore(value: number | null) {
   return value === null ? '--' : numberFormatter.format(value)
+}
+
+function formatInjuryAvailabilityScore(value: number | null) {
+  return value === null ? '--' : numberFormatter.format(value)
+}
+
+function formatPainLevel(value: number | null) {
+  return value === null ? '--' : `${numberFormatter.format(value)}/10`
+}
+
+function formatConfidenceToTrain(value: number | null) {
+  return value === null ? '--' : `${numberFormatter.format(value)}/5`
 }
 
 function formatSleepHours(value: number | null) {
@@ -604,6 +718,34 @@ function getHomeEquipmentCategoryOption(category: HomeEquipmentCategory) {
   )
 }
 
+function getInjuryBodyAreaOption(bodyArea: InjuryBodyArea) {
+  return (
+    INJURY_BODY_AREA_OPTIONS.find((option) => option.value === bodyArea) ??
+    INJURY_BODY_AREA_OPTIONS[0]
+  )
+}
+
+function getInjurySideOption(side: InjurySide) {
+  return (
+    INJURY_SIDE_OPTIONS.find((option) => option.value === side) ??
+    INJURY_SIDE_OPTIONS[0]
+  )
+}
+
+function formatInjuryCaseLocation(injuryCase: InjuryCase) {
+  const areaLabel = getInjuryBodyAreaOption(injuryCase.bodyArea).label
+
+  if (injuryCase.side === 'na') {
+    return areaLabel
+  }
+
+  return `${getInjurySideOption(injuryCase.side).label} ${areaLabel.toLowerCase()}`
+}
+
+function formatInjuryCaseStatus(status: InjuryCaseStatus) {
+  return status === 'active' ? 'Active' : 'Resolved'
+}
+
 function createEntryId(prefix: string) {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? `${prefix}-${crypto.randomUUID()}`
@@ -646,6 +788,65 @@ function isStoredRecoveryEntry(value: unknown): value is RecoveryEntry {
     typeof entry.stress === 'number' &&
     typeof entry.hydration === 'number' &&
     typeof entry.score === 'number' &&
+    typeof entry.createdAt === 'string'
+  )
+}
+
+function isStoredInjuryCaseStatus(value: unknown): value is InjuryCaseStatus {
+  return value === 'active' || value === 'resolved'
+}
+
+function isStoredInjuryBodyArea(value: unknown): value is InjuryBodyArea {
+  return (
+    typeof value === 'string' &&
+    INJURY_BODY_AREA_OPTIONS.some((option) => option.value === value)
+  )
+}
+
+function isStoredInjurySide(value: unknown): value is InjurySide {
+  return (
+    typeof value === 'string' &&
+    INJURY_SIDE_OPTIONS.some((option) => option.value === value)
+  )
+}
+
+function isStoredInjuryCase(value: unknown): value is InjuryCase {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const injuryCase = value as Record<string, unknown>
+
+  return (
+    typeof injuryCase.id === 'string' &&
+    typeof injuryCase.name === 'string' &&
+    typeof injuryCase.onsetDate === 'string' &&
+    isStoredInjuryBodyArea(injuryCase.bodyArea) &&
+    isStoredInjurySide(injuryCase.side) &&
+    isStoredInjuryCaseStatus(injuryCase.status) &&
+    typeof injuryCase.createdAt === 'string' &&
+    (typeof injuryCase.resolvedAt === 'string' ||
+      injuryCase.resolvedAt === null ||
+      typeof injuryCase.resolvedAt === 'undefined')
+  )
+}
+
+function isStoredInjuryCheckIn(value: unknown): value is InjuryCheckIn {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const entry = value as Record<string, unknown>
+
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.injuryId === 'string' &&
+    typeof entry.date === 'string' &&
+    typeof entry.painAtRest === 'number' &&
+    typeof entry.painWithTraining === 'number' &&
+    typeof entry.confidenceToTrain === 'number' &&
+    typeof entry.modifiedTraining === 'boolean' &&
+    typeof entry.availabilityScore === 'number' &&
     typeof entry.createdAt === 'string'
   )
 }
@@ -783,6 +984,76 @@ function loadStoredRecoveryEntries() {
   } catch {
     return []
   }
+}
+
+function loadStoredInjuryCases() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(INJURY_CASES_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortInjuryCases(
+      parsed.filter(isStoredInjuryCase).map((injuryCase) => ({
+        ...injuryCase,
+        notes: typeof injuryCase.notes === 'string' ? injuryCase.notes : '',
+        resolvedAt:
+          typeof injuryCase.resolvedAt === 'string' ? injuryCase.resolvedAt : null,
+      })),
+    )
+  } catch {
+    return []
+  }
+}
+
+function loadStoredInjuryCheckIns() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(INJURY_CHECK_INS_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortInjuryCheckIns(
+      parsed.filter(isStoredInjuryCheckIn).map((entry) => ({
+        ...entry,
+        notes: typeof entry.notes === 'string' ? entry.notes : '',
+      })),
+    )
+  } catch {
+    return []
+  }
+}
+
+function getInitialSelectedInjuryCaseId() {
+  const storedInjuryCases = loadStoredInjuryCases()
+
+  return (
+    storedInjuryCases.find((injuryCase) => injuryCase.status === 'active')?.id ??
+    storedInjuryCases[0]?.id ??
+    ''
+  )
 }
 
 function loadStoredNutritionEntries() {
@@ -1002,6 +1273,48 @@ function buildHrvDots(points: RecoveryDailyPoint[], minHrv: number, maxHrv: numb
   })
 }
 
+function buildInjuryAvailabilityPath(points: InjuryDailyPoint[]) {
+  let path = ''
+
+  points.forEach((point, index) => {
+    if (point.availabilityScore === null) {
+      return
+    }
+
+    const x = (index / Math.max(1, points.length - 1)) * 100
+    const y = 100 - point.availabilityScore
+
+    path += path ? ` L ${x} ${y}` : `M ${x} ${y}`
+  })
+
+  return path
+}
+
+function buildInjuryRestPainPath(points: InjuryDailyPoint[]) {
+  let path = ''
+
+  points.forEach((point, index) => {
+    if (point.painAtRest === null) {
+      return
+    }
+
+    const x = (index / Math.max(1, points.length - 1)) * 100
+    const y = 100 - (point.painAtRest / 10) * 100
+
+    path += path ? ` L ${x} ${y}` : `M ${x} ${y}`
+  })
+
+  return path
+}
+
+function buildInjuryPainBars(points: InjuryDailyPoint[]) {
+  return points.map((point, index) => ({
+    x: (index / Math.max(1, points.length)) * 100 + 0.5,
+    width: 100 / Math.max(1, points.length) - 1,
+    height: ((point.painWithTraining ?? 0) / 10) * 100,
+  }))
+}
+
 function buildNutritionScorePath(points: NutritionDailyPoint[]) {
   let path = ''
 
@@ -1098,6 +1411,37 @@ function getRecoverySummary(score: number | null, average: number | null, band: 
   }
 
   return `${band.label} because today is ${Math.abs(delta)} points below your 7-day average.`
+}
+
+function getInjurySummary(
+  activeInjuryCount: number,
+  latestCheckIn: InjuryCheckIn | null,
+  average: number | null,
+  band: InjuryBand,
+) {
+  if (!activeInjuryCount) {
+    return 'No active injury cases are being tracked right now.'
+  }
+
+  if (latestCheckIn === null) {
+    return 'Track a case update to see how much the issue is changing training availability.'
+  }
+
+  if (average === null) {
+    return `${band.label}. Build a few injury updates to create a short-term symptom trend.`
+  }
+
+  const delta = latestCheckIn.availabilityScore - average
+
+  if (Math.abs(delta) <= 3) {
+    return 'The latest injury update is tracking almost exactly with your 7-day injury average.'
+  }
+
+  if (delta > 0) {
+    return `${band.label} because the latest update is ${delta} points above your 7-day average.`
+  }
+
+  return `${band.label} because the latest update is ${Math.abs(delta)} points below your 7-day average.`
 }
 
 function RatioDial({
@@ -1214,6 +1558,43 @@ function NutritionScoreDial({
       <div className="ratio-dial-copy">
         <span className="ratio-dial-value">{formatNutritionScore(score)}</span>
         <span className="ratio-dial-label">nutrition score</span>
+        <strong className="ratio-dial-band" style={{ color: band.color }}>
+          {band.label}
+        </strong>
+      </div>
+    </div>
+  )
+}
+
+function InjuryAvailabilityDial({
+  score,
+  band,
+}: {
+  score: number | null
+  band: InjuryBand
+}) {
+  const radius = 82
+  const circumference = 2 * Math.PI * radius
+  const progress = score === null ? 0.05 : Math.max(0.08, score / 100)
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <div className="ratio-dial">
+      <svg viewBox="0 0 200 200" className="ratio-dial-graphic" aria-hidden="true">
+        <circle className="ratio-dial-track" cx="100" cy="100" r={radius} />
+        <circle
+          className="ratio-dial-progress"
+          cx="100"
+          cy="100"
+          r={radius}
+          stroke={band.color}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="ratio-dial-copy">
+        <span className="ratio-dial-value">{formatInjuryAvailabilityScore(score)}</span>
+        <span className="ratio-dial-label">training availability</span>
         <strong className="ratio-dial-band" style={{ color: band.color }}>
           {band.label}
         </strong>
@@ -1509,6 +1890,86 @@ function NutritionTrendChart({
   )
 }
 
+function InjuryTrendChart({
+  points,
+  injuryName,
+}: {
+  points: InjuryDailyPoint[]
+  injuryName: string
+}) {
+  const availabilityPath = buildInjuryAvailabilityPath(points)
+  const restPainPath = buildInjuryRestPainPath(points)
+  const bars = buildInjuryPainBars(points)
+  const labels = points.filter(
+    (_, index) => index % 3 === 0 || index === points.length - 1,
+  )
+
+  return (
+    <div className="trend-chart">
+      <svg
+        viewBox="0 0 100 100"
+        className="trend-chart-svg injury-trend-svg"
+        role="img"
+        aria-label={`${injuryName} injury trend chart`}
+      >
+        <rect className="injury-trend-band" x="0" y="0" width="100" height="20" />
+        {[25, 50, 75].map((mark) => (
+          <line
+            key={mark}
+            className="trend-chart-gridline"
+            x1="0"
+            y1={100 - mark}
+            x2="100"
+            y2={100 - mark}
+          />
+        ))}
+        {bars.map((bar) => (
+          <rect
+            key={bar.x}
+            className="injury-trend-bar"
+            x={bar.x}
+            y={100 - bar.height}
+            width={bar.width}
+            height={bar.height}
+            rx="0.6"
+          />
+        ))}
+        {availabilityPath ? (
+          <path className="injury-trend-line" d={availabilityPath} />
+        ) : null}
+        {restPainPath ? <path className="injury-rest-line" d={restPainPath} /> : null}
+      </svg>
+      <div className="trend-chart-axis">
+        {labels.map((point) => (
+          <span key={point.date}>{formatShortDate(point.date)}</span>
+        ))}
+      </div>
+      <div className="trend-legend">
+        <span>
+          <i className="legend-swatch injury-legend-band" />
+          high availability (80+)
+        </span>
+        <span>
+          <i className="legend-swatch injury-legend-line" />
+          availability score
+        </span>
+        <span>
+          <i className="legend-swatch injury-legend-bar" />
+          pain with training
+        </span>
+        <span>
+          <i className="legend-swatch injury-legend-rest" />
+          pain at rest
+        </span>
+      </div>
+      <p className="trend-footnote">
+        Higher bars mean more pain during training, while the line tracks how available
+        training looks overall for this issue.
+      </p>
+    </div>
+  )
+}
+
 function WorkloadStrip({ points }: { points: DailyLoadPoint[] }) {
   const maxLoad = Math.max(1, ...points.map((point) => point.totalLoad))
 
@@ -1635,6 +2096,180 @@ function RecoveryBreakdown({ entry }: { entry: RecoveryEntry | undefined }) {
   )
 }
 
+function InjuryBreakdown({ entry }: { entry: InjuryCheckIn | null }) {
+  if (!entry) {
+    return (
+      <div className="empty-block">
+        <p>No injury updates yet.</p>
+        <p>The latest symptom breakdown will appear here after the first check-in.</p>
+      </div>
+    )
+  }
+
+  const metrics = [
+    {
+      label: 'Availability',
+      value: formatInjuryAvailabilityScore(entry.availabilityScore),
+      detail: 'training score',
+    },
+    {
+      label: 'Pain at rest',
+      value: formatPainLevel(entry.painAtRest),
+      detail: 'baseline symptoms',
+    },
+    {
+      label: 'Pain with training',
+      value: formatPainLevel(entry.painWithTraining),
+      detail: 'during the session',
+    },
+    {
+      label: 'Confidence',
+      value: formatConfidenceToTrain(entry.confidenceToTrain),
+      detail: entry.modifiedTraining ? 'training modified' : 'full plan possible',
+    },
+  ]
+
+  return (
+    <div className="recovery-breakdown">
+      <div className="injury-breakdown-grid">
+        {metrics.map((metric) => (
+          <article key={metric.label} className="recovery-breakdown-item">
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.detail}</small>
+          </article>
+        ))}
+      </div>
+      {entry.notes ? <p className="recovery-note">Latest note: {entry.notes}</p> : null}
+    </div>
+  )
+}
+
+function InjuryCaseList({
+  title,
+  emptyTitle,
+  emptyDetail,
+  cases,
+  selectedCaseId,
+  latestCheckInByCaseId,
+  onSelect,
+  onResolve,
+  onReopen,
+  onDelete,
+}: {
+  title: string
+  emptyTitle: string
+  emptyDetail: string
+  cases: InjuryCase[]
+  selectedCaseId: string
+  latestCheckInByCaseId: Map<string, InjuryCheckIn>
+  onSelect: (injuryCaseId: string) => void
+  onResolve: (injuryCaseId: string) => void
+  onReopen: (injuryCaseId: string) => void
+  onDelete: (injuryCaseId: string) => void
+}) {
+  if (!cases.length) {
+    return (
+      <div className="empty-block">
+        <p>{emptyTitle}</p>
+        <p>{emptyDetail}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="injury-case-group">
+      <p className="section-kicker">{title}</p>
+      <div className="injury-case-grid">
+        {cases.map((injuryCase) => {
+          const latestCheckIn = latestCheckInByCaseId.get(injuryCase.id) ?? null
+          const band = getInjuryBand(latestCheckIn?.availabilityScore ?? null)
+          const isSelected = injuryCase.id === selectedCaseId
+
+          return (
+            <article
+              key={injuryCase.id}
+              className={`injury-case-card${isSelected ? ' is-selected' : ''}`}
+            >
+              <div className="injury-case-header">
+                <div>
+                  <strong>{injuryCase.name}</strong>
+                  <p>{formatInjuryCaseLocation(injuryCase)}</p>
+                </div>
+                <span className="injury-case-band" style={{ color: band.color }}>
+                  {band.label}
+                </span>
+              </div>
+
+              <div className="injury-case-meta">
+                <span>Onset {formatShortDate(injuryCase.onsetDate)}</span>
+                <span>{formatInjuryCaseStatus(injuryCase.status)}</span>
+                <span>
+                  {latestCheckIn
+                    ? `Updated ${formatShortDate(latestCheckIn.date)}`
+                    : 'Waiting for first update'}
+                </span>
+              </div>
+
+              {latestCheckIn ? (
+                <div className="injury-case-summary">
+                  <span>
+                    Availability {formatInjuryAvailabilityScore(latestCheckIn.availabilityScore)}
+                  </span>
+                  <span>
+                    Training pain {formatPainLevel(latestCheckIn.painWithTraining)}
+                  </span>
+                  <span>
+                    {latestCheckIn.modifiedTraining
+                      ? 'Training modified'
+                      : 'Training mostly normal'}
+                  </span>
+                </div>
+              ) : null}
+
+              {injuryCase.notes ? <p className="injury-case-note">{injuryCase.notes}</p> : null}
+
+              <div className="entry-actions">
+                <button
+                  type="button"
+                  className={isSelected ? 'primary-button' : 'secondary-button'}
+                  onClick={() => onSelect(injuryCase.id)}
+                >
+                  {isSelected ? 'Selected' : 'Select'}
+                </button>
+                {injuryCase.status === 'active' ? (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => onResolve(injuryCase.id)}
+                  >
+                    Resolve
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => onReopen(injuryCase.id)}
+                  >
+                    Reopen
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDelete(injuryCase.id)}
+                >
+                  Remove
+                </button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function RecentSessionTable({
   sessions,
   onDelete,
@@ -1688,6 +2323,76 @@ function RecentSessionTable({
               </td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RecentInjuryCheckInTable({
+  entries,
+  injuryCasesById,
+  onDelete,
+}: {
+  entries: InjuryCheckIn[]
+  injuryCasesById: Map<string, InjuryCase>
+  onDelete: (entryId: string) => void
+}) {
+  if (!entries.length) {
+    return (
+      <div className="empty-block">
+        <p>No injury updates yet.</p>
+        <p>The latest injury updates will appear here once you log the first one.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="session-table-wrapper">
+      <table className="session-table">
+        <thead>
+          <tr>
+            <th>Issue</th>
+            <th>Date</th>
+            <th>Availability</th>
+            <th>Rest pain</th>
+            <th>Training pain</th>
+            <th>Confidence</th>
+            <th>Modified</th>
+            <th aria-label="Delete injury update" />
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => {
+            const injuryCase = injuryCasesById.get(entry.injuryId)
+
+            return (
+              <tr key={entry.id}>
+                <td>
+                  <div className="session-title">{injuryCase?.name ?? 'Unknown issue'}</div>
+                  <div className="session-notes">
+                    {injuryCase ? formatInjuryCaseLocation(injuryCase) : 'Missing case'}
+                  </div>
+                  {entry.notes ? <div className="session-notes">{entry.notes}</div> : null}
+                </td>
+                <td>{formatLongDate(entry.date)}</td>
+                <td>{formatInjuryAvailabilityScore(entry.availabilityScore)}</td>
+                <td>{formatPainLevel(entry.painAtRest)}</td>
+                <td>{formatPainLevel(entry.painWithTraining)}</td>
+                <td>{formatConfidenceToTrain(entry.confidenceToTrain)}</td>
+                <td>{entry.modifiedTraining ? 'Yes' : 'No'}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => onDelete(entry.id)}
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -1895,6 +2600,11 @@ function Sidebar({
   recoveryHrvAverage,
   recoveryBand,
   recoveryCheckIns,
+  latestInjuryCheckIn,
+  activeInjuryCount,
+  injuryBand,
+  injuryCheckInCount,
+  mostLimitingInjuryCase,
   latestNutritionEntry,
   nutritionAverage,
   nutritionBand,
@@ -1914,6 +2624,11 @@ function Sidebar({
   recoveryHrvAverage: number | null
   recoveryBand: RecoveryBand
   recoveryCheckIns: number
+  latestInjuryCheckIn: InjuryCheckIn | null
+  activeInjuryCount: number
+  injuryBand: InjuryBand
+  injuryCheckInCount: number
+  mostLimitingInjuryCase: InjuryCase | null
   latestNutritionEntry: NutritionEntry | undefined
   nutritionAverage: number | null
   nutritionBand: NutritionBand
@@ -1924,6 +2639,7 @@ function Sidebar({
   const isDashboard = activeSection === 'dashboard'
   const isWorkload = activeSection === 'workload'
   const isRecovery = activeSection === 'recovery'
+  const isInjury = activeSection === 'injury'
   const isNutrition = activeSection === 'nutrition'
   const isWorkoutGenerator = activeSection === 'workout-generator'
   const isSettings = activeSection === 'settings'
@@ -1987,11 +2703,13 @@ function Sidebar({
               ? 'Current workload'
               : isRecovery
                 ? 'Current recovery'
+                : isInjury
+                  ? 'Current injury'
                 : isNutrition
-              ? 'Current nutrition'
-              : isSettings
-                ? 'Home setup'
-                : 'Generator context'}
+                  ? 'Current nutrition'
+                  : isSettings
+                    ? 'Home setup'
+                    : 'Generator context'}
         </p>
         <div className="sidebar-status-grid">
           {isDashboard ? (
@@ -2011,8 +2729,8 @@ function Sidebar({
                 </strong>
               </div>
               <div>
-                <span>Sessions</span>
-                <strong>{weeklySessionCount}</strong>
+                <span>Injuries</span>
+                <strong>{activeInjuryCount}</strong>
               </div>
             </>
           ) : isSettings ? (
@@ -2062,6 +2780,31 @@ function Sidebar({
               <div>
                 <span>7d HRV</span>
                 <strong>{formatHrv(recoveryHrvAverage)}</strong>
+              </div>
+            </>
+          ) : isInjury ? (
+            <>
+              <div>
+                <span>Latest score</span>
+                <strong>
+                  {formatInjuryAvailabilityScore(
+                    latestInjuryCheckIn?.availabilityScore ?? null,
+                  )}
+                </strong>
+              </div>
+              <div>
+                <span>Active cases</span>
+                <strong>{activeInjuryCount}</strong>
+              </div>
+              <div>
+                <span>Limiting issue</span>
+                <strong>{mostLimitingInjuryCase?.name ?? '--'}</strong>
+              </div>
+              <div>
+                <span>Updated</span>
+                <strong>
+                  {latestInjuryCheckIn ? formatShortDate(latestInjuryCheckIn.date) : '--'}
+                </strong>
               </div>
             </>
           ) : isNutrition ? (
@@ -2122,6 +2865,8 @@ function Sidebar({
             ? 'Use the dashboard to scan every section quickly, then jump into the area that needs action.'
             : isRecovery
             ? recoveryBand.detail
+            : isInjury
+              ? injuryBand.detail
             : isNutrition
               ? nutritionBand.detail
               : isWorkoutGenerator
@@ -2129,11 +2874,12 @@ function Sidebar({
                 : ratioBand.detail}
         </p>
         {isDashboard ? (
-          <p>Start broad, then dive into workload, recovery, or nutrition.</p>
+          <p>Start broad, then dive into workload, recovery, injury, or nutrition.</p>
         ) : null}
         {isRecovery ? (
           <p>{recoveryCheckIns}/7 morning check-ins logged this week.</p>
         ) : null}
+        {isInjury ? <p>{injuryCheckInCount}/7 injury updates logged this week.</p> : null}
         {isNutrition ? (
           <p>{nutritionLogCount}/7 nutrition days logged this week.</p>
         ) : null}
@@ -2212,6 +2958,12 @@ function DashboardWorkspace({
   recoveryAverage,
   recoveryBand,
   recoveryCheckIns,
+  latestInjuryCheckIn,
+  injuryAverage,
+  injuryBand,
+  injuryCheckInCount,
+  activeInjuryCount,
+  mostLimitingInjuryCase,
   latestNutritionEntry,
   nutritionAverage,
   nutritionBand,
@@ -2226,6 +2978,12 @@ function DashboardWorkspace({
   recoveryAverage: number | null
   recoveryBand: RecoveryBand
   recoveryCheckIns: number
+  latestInjuryCheckIn: InjuryCheckIn | null
+  injuryAverage: number | null
+  injuryBand: InjuryBand
+  injuryCheckInCount: number
+  activeInjuryCount: number
+  mostLimitingInjuryCase: InjuryCase | null
   latestNutritionEntry: NutritionEntry | undefined
   nutritionAverage: number | null
   nutritionBand: NutritionBand
@@ -2239,7 +2997,7 @@ function DashboardWorkspace({
         <h1>See every training signal in one place.</h1>
         <p className="content-summary">
           Use this overview as your daily starting point, then jump straight
-          into workload, recovery, or nutrition from the section that needs
+          into workload, recovery, injury, or nutrition from the section that needs
           attention.
         </p>
       </header>
@@ -2268,6 +3026,15 @@ function DashboardWorkspace({
               </strong>
               <small>{nutritionBand.label.toLowerCase()}</small>
             </div>
+            <div>
+              <span>Injury</span>
+              <strong>
+                {formatInjuryAvailabilityScore(
+                  latestInjuryCheckIn?.availabilityScore ?? null,
+                )}
+              </strong>
+              <small>{injuryBand.label.toLowerCase()}</small>
+            </div>
           </div>
         </div>
 
@@ -2282,8 +3049,8 @@ function DashboardWorkspace({
             </p>
             <p className="hero-focus-detail">
               {weeklySessionCount} sessions, {recoveryCheckIns}/7 recovery
-              check-ins, and {nutritionLogCount}/7 nutrition logs tracked this
-              week.
+              check-ins, {injuryCheckInCount}/7 injury updates, and {nutritionLogCount}
+              /7 nutrition logs tracked this week.
             </p>
             <div className="entry-actions">
               <button
@@ -2361,6 +3128,44 @@ function DashboardWorkspace({
           ]}
           tone={recoveryBand.color}
           actionLabel="Open recovery"
+          onOpen={onOpenSection}
+        />
+
+        <DashboardSnapshotCard
+          section="injury"
+          kicker="Injury"
+          title="Current training limitations"
+          summary={getInjurySummary(
+            activeInjuryCount,
+            latestInjuryCheckIn,
+            injuryAverage,
+            injuryBand,
+          )}
+          metrics={[
+            {
+              label: 'Active cases',
+              value: `${activeInjuryCount}`,
+              detail: activeInjuryCount ? 'being tracked now' : 'nothing active',
+            },
+            {
+              label: 'Limiting issue',
+              value: mostLimitingInjuryCase?.name ?? '--',
+              detail: mostLimitingInjuryCase
+                ? formatInjuryCaseLocation(mostLimitingInjuryCase)
+                : 'no active issue',
+            },
+            {
+              label: 'Latest score',
+              value: formatInjuryAvailabilityScore(
+                latestInjuryCheckIn?.availabilityScore ?? null,
+              ),
+              detail: latestInjuryCheckIn
+                ? formatShortDate(latestInjuryCheckIn.date)
+                : 'no update yet',
+            },
+          ]}
+          tone={injuryBand.color}
+          actionLabel="Open injury"
           onOpen={onOpenSection}
         />
 
@@ -2912,6 +3717,488 @@ function RecoveryWorkspace({
           <RecentRecoveryTable
             entries={recentRecoveryEntries}
             onDelete={onDeleteEntry}
+          />
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function InjuryWorkspace({
+  injuryCases,
+  activeInjuryCases,
+  resolvedInjuryCases,
+  selectedInjuryCase,
+  selectedInjuryLatestCheckIn,
+  selectedInjuryAverage,
+  selectedInjuryBand,
+  latestInjuryCheckIn,
+  activeInjuryCount,
+  injuryCheckInCount,
+  mostLimitingInjury,
+  injuryCaseFormState,
+  injuryCheckInFormState,
+  caseErrorMessage,
+  checkInErrorMessage,
+  availabilityPreview,
+  injurySeries,
+  latestCheckInByCaseId,
+  injuryCasesById,
+  recentInjuryCheckIns,
+  onCaseInputChange,
+  onCheckInInputChange,
+  onAddCase,
+  onAddCheckIn,
+  onSelectCase,
+  onResolveCase,
+  onReopenCase,
+  onDeleteCase,
+  onDeleteCheckIn,
+  onLoadDemoData,
+  onClearAll,
+}: {
+  injuryCases: InjuryCase[]
+  activeInjuryCases: InjuryCase[]
+  resolvedInjuryCases: InjuryCase[]
+  selectedInjuryCase: InjuryCase | null
+  selectedInjuryLatestCheckIn: InjuryCheckIn | null
+  selectedInjuryAverage: number | null
+  selectedInjuryBand: InjuryBand
+  latestInjuryCheckIn: InjuryCheckIn | null
+  activeInjuryCount: number
+  injuryCheckInCount: number
+  mostLimitingInjury: {
+    injuryCase: InjuryCase
+    latestCheckIn: InjuryCheckIn | null
+  } | null
+  injuryCaseFormState: InjuryCaseFormState
+  injuryCheckInFormState: InjuryCheckInFormState
+  caseErrorMessage: string
+  checkInErrorMessage: string
+  availabilityPreview: number | null
+  injurySeries: InjuryDailyPoint[]
+  latestCheckInByCaseId: Map<string, InjuryCheckIn>
+  injuryCasesById: Map<string, InjuryCase>
+  recentInjuryCheckIns: InjuryCheckIn[]
+  onCaseInputChange: (field: keyof InjuryCaseFormState, value: string) => void
+  onCheckInInputChange: (
+    field: keyof InjuryCheckInFormState,
+    value: string | boolean,
+  ) => void
+  onAddCase: (event: FormEvent<HTMLFormElement>) => void
+  onAddCheckIn: (event: FormEvent<HTMLFormElement>) => void
+  onSelectCase: (injuryCaseId: string) => void
+  onResolveCase: (injuryCaseId: string) => void
+  onReopenCase: (injuryCaseId: string) => void
+  onDeleteCase: (injuryCaseId: string) => void
+  onDeleteCheckIn: (entryId: string) => void
+  onLoadDemoData: () => void
+  onClearAll: () => void
+}) {
+  const heroSummary = selectedInjuryCase
+    ? getInjurySummary(
+        Math.max(activeInjuryCount, 1),
+        selectedInjuryLatestCheckIn,
+        selectedInjuryAverage,
+        selectedInjuryBand,
+      )
+    : 'Create an injury case, then log one short update per day for that issue.'
+
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Injury</p>
+        <h1>Track the issues that actually change what training should look like.</h1>
+        <p className="content-summary">
+          Keep active cases separate, log one short update per injury, and use the trend
+          to see whether symptoms are settling, stable, or getting louder.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Injury overview</p>
+            <h2>{selectedInjuryCase ? selectedInjuryCase.name : 'No case selected yet'}</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Active cases</span>
+              <strong>{activeInjuryCount}</strong>
+              <small>{activeInjuryCount ? 'currently being tracked' : 'nothing active'}</small>
+            </div>
+            <div>
+              <span>Latest score</span>
+              <strong>
+                {formatInjuryAvailabilityScore(
+                  selectedInjuryLatestCheckIn?.availabilityScore ??
+                    latestInjuryCheckIn?.availabilityScore ??
+                    null,
+                )}
+              </strong>
+              <small>
+                {selectedInjuryLatestCheckIn
+                  ? formatLongDate(selectedInjuryLatestCheckIn.date)
+                  : latestInjuryCheckIn
+                    ? `latest overall ${formatShortDate(latestInjuryCheckIn.date)}`
+                    : 'no update yet'}
+              </small>
+            </div>
+            <div>
+              <span>Location</span>
+              <strong>
+                {selectedInjuryCase ? formatInjuryCaseLocation(selectedInjuryCase) : '--'}
+              </strong>
+              <small>
+                {selectedInjuryCase
+                  ? `${formatInjuryCaseStatus(selectedInjuryCase.status)} case`
+                  : 'create a case first'}
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <InjuryAvailabilityDial
+            score={
+              selectedInjuryLatestCheckIn?.availabilityScore ??
+              latestInjuryCheckIn?.availabilityScore ??
+              null
+            }
+            band={selectedInjuryBand}
+          />
+          <p className="hero-focus-summary">{heroSummary}</p>
+          <p className="hero-focus-detail">
+            {mostLimitingInjury
+              ? `Most limiting issue right now: ${mostLimitingInjury.injuryCase.name}.`
+              : 'No active issue is currently limiting training.'}{' '}
+            {injuryCheckInCount}/7 injury updates logged in the last week.
+          </p>
+        </aside>
+      </section>
+
+      <main className="workspace">
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Case setup</p>
+              <h2>Create and manage injury cases</h2>
+            </div>
+            <p>
+              Cases stay open until you resolve them, and daily updates are tracked per
+              case instead of getting blended into one generic pain log.
+            </p>
+          </div>
+
+          <form className="entry-form" onSubmit={onAddCase}>
+            <div className="entry-grid">
+              <label>
+                Issue name
+                <input
+                  type="text"
+                  placeholder="Achilles irritation, shoulder pain..."
+                  value={injuryCaseFormState.name}
+                  onChange={(event) =>
+                    onCaseInputChange('name', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Onset date
+                <input
+                  type="date"
+                  value={injuryCaseFormState.onsetDate}
+                  onChange={(event) =>
+                    onCaseInputChange('onsetDate', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Body area
+                <select
+                  value={injuryCaseFormState.bodyArea}
+                  onChange={(event) =>
+                    onCaseInputChange('bodyArea', event.currentTarget.value)
+                  }
+                >
+                  {INJURY_BODY_AREA_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Side
+                <select
+                  value={injuryCaseFormState.side}
+                  onChange={(event) =>
+                    onCaseInputChange('side', event.currentTarget.value)
+                  }
+                >
+                  {INJURY_SIDE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label>
+              Notes
+              <textarea
+                rows={3}
+                placeholder="Optional context: what aggravates it, what calms it down, where it started..."
+                value={injuryCaseFormState.notes}
+                onChange={(event) => onCaseInputChange('notes', event.currentTarget.value)}
+              />
+            </label>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Tracked issues</span>
+                <strong>{injuryCases.length}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Add case
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={onLoadDemoData}
+                >
+                  {injuryCases.length ? 'Replace with demo data' : 'Load demo data'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={onClearAll}
+                  disabled={!injuryCases.length}
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+
+            {caseErrorMessage ? <p className="form-error">{caseErrorMessage}</p> : null}
+          </form>
+
+          <InjuryCaseList
+            title="Active cases"
+            emptyTitle="No active injury cases."
+            emptyDetail="Create a case above to start tracking an issue over time."
+            cases={activeInjuryCases}
+            selectedCaseId={selectedInjuryCase?.id ?? ''}
+            latestCheckInByCaseId={latestCheckInByCaseId}
+            onSelect={onSelectCase}
+            onResolve={onResolveCase}
+            onReopen={onReopenCase}
+            onDelete={onDeleteCase}
+          />
+
+          <InjuryCaseList
+            title="Resolved archive"
+            emptyTitle="No resolved cases yet."
+            emptyDetail="Resolved issues stay here so you can reference prior flare-ups later."
+            cases={resolvedInjuryCases}
+            selectedCaseId={selectedInjuryCase?.id ?? ''}
+            latestCheckInByCaseId={latestCheckInByCaseId}
+            onSelect={onSelectCase}
+            onResolve={onResolveCase}
+            onReopen={onReopenCase}
+            onDelete={onDeleteCase}
+          />
+        </section>
+
+        <section className="section-panel load-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Daily update</p>
+              <h2>Log an injury check-in</h2>
+            </div>
+            <p>
+              Saving a new update for the same issue and date replaces the older one, so
+              each case keeps one clear daily checkpoint.
+            </p>
+          </div>
+
+          {!injuryCases.length ? (
+            <div className="empty-block">
+              <p>No cases to update yet.</p>
+              <p>Create an injury case first, then daily updates will appear here.</p>
+            </div>
+          ) : (
+            <>
+              <form className="entry-form" onSubmit={onAddCheckIn}>
+                <div className="entry-grid">
+                  <label>
+                    Injury case
+                    <select
+                      value={injuryCheckInFormState.injuryId}
+                      onChange={(event) =>
+                        onCheckInInputChange('injuryId', event.currentTarget.value)
+                      }
+                    >
+                      {injuryCases.map((injuryCase) => (
+                        <option key={injuryCase.id} value={injuryCase.id}>
+                          {injuryCase.name} ({formatInjuryCaseStatus(injuryCase.status)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Date
+                    <input
+                      type="date"
+                      value={injuryCheckInFormState.date}
+                      onChange={(event) =>
+                        onCheckInInputChange('date', event.currentTarget.value)
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Pain at rest
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={injuryCheckInFormState.painAtRest}
+                      onChange={(event) =>
+                        onCheckInInputChange('painAtRest', event.currentTarget.value)
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Pain with training
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={injuryCheckInFormState.painWithTraining}
+                      onChange={(event) =>
+                        onCheckInInputChange(
+                          'painWithTraining',
+                          event.currentTarget.value,
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Confidence to train
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      max="5"
+                      step="1"
+                      value={injuryCheckInFormState.confidenceToTrain}
+                      onChange={(event) =>
+                        onCheckInInputChange(
+                          'confidenceToTrain',
+                          event.currentTarget.value,
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label className="injury-toggle">
+                    Training modified today
+                    <input
+                      type="checkbox"
+                      checked={injuryCheckInFormState.modifiedTraining}
+                      onChange={(event) =>
+                        onCheckInInputChange(
+                          'modifiedTraining',
+                          event.currentTarget.checked,
+                        )
+                      }
+                    />
+                    <span>
+                      Check this if the issue forced you to change the session, reduce
+                      load, or skip work.
+                    </span>
+                  </label>
+                </div>
+
+                <label>
+                  Notes
+                  <textarea
+                    rows={3}
+                    placeholder="Optional context: what changed, what aggravated it, what helped..."
+                    value={injuryCheckInFormState.notes}
+                    onChange={(event) =>
+                      onCheckInInputChange('notes', event.currentTarget.value)
+                    }
+                  />
+                </label>
+
+                <div className="entry-footer">
+                  <div className="load-preview">
+                    <span>Availability preview</span>
+                    <strong>{formatInjuryAvailabilityScore(availabilityPreview)}</strong>
+                  </div>
+                  <div className="entry-actions">
+                    <button type="submit" className="primary-button">
+                      Save update
+                    </button>
+                  </div>
+                </div>
+
+                {checkInErrorMessage ? <p className="form-error">{checkInErrorMessage}</p> : null}
+              </form>
+
+              <InjuryBreakdown entry={selectedInjuryLatestCheckIn} />
+            </>
+          )}
+        </section>
+
+        <section className="section-panel trend-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Trend</p>
+              <h2>Two-week symptom view</h2>
+            </div>
+            <p>
+              The selected case drives this chart so you can keep one injury trend clear at
+              a time instead of blending different issues together.
+            </p>
+          </div>
+
+          {selectedInjuryCase ? (
+            <InjuryTrendChart points={injurySeries} injuryName={selectedInjuryCase.name} />
+          ) : (
+            <div className="empty-block">
+              <p>No case selected.</p>
+              <p>Select an injury case to see its two-week trend.</p>
+            </div>
+          )}
+        </section>
+
+        <section className="section-panel sessions-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Injury log</p>
+              <h2>Recent updates</h2>
+            </div>
+            <p>Use the log to scan every tracked issue without losing the daily detail.</p>
+          </div>
+          <RecentInjuryCheckInTable
+            entries={recentInjuryCheckIns}
+            injuryCasesById={injuryCasesById}
+            onDelete={onDeleteCheckIn}
           />
         </section>
       </main>
@@ -4232,6 +5519,12 @@ function App() {
   const [recoveryEntries, setRecoveryEntries] = useState<RecoveryEntry[]>(() =>
     loadStoredRecoveryEntries(),
   )
+  const [injuryCases, setInjuryCases] = useState<InjuryCase[]>(() =>
+    loadStoredInjuryCases(),
+  )
+  const [injuryCheckIns, setInjuryCheckIns] = useState<InjuryCheckIn[]>(() =>
+    loadStoredInjuryCheckIns(),
+  )
   const [nutritionEntries, setNutritionEntries] = useState<NutritionEntry[]>(() =>
     loadStoredNutritionEntries(),
   )
@@ -4251,6 +5544,16 @@ function App() {
   const [recoveryFormState, setRecoveryFormState] = useState<RecoveryFormState>(() =>
     createEmptyRecoveryFormState(),
   )
+  const [injuryCaseFormState, setInjuryCaseFormState] = useState<InjuryCaseFormState>(() =>
+    createEmptyInjuryCaseFormState(),
+  )
+  const [selectedInjuryCaseIdState, setSelectedInjuryCaseId] = useState<string>(() =>
+    getInitialSelectedInjuryCaseId(),
+  )
+  const [injuryCheckInFormState, setInjuryCheckInFormState] =
+    useState<InjuryCheckInFormState>(() =>
+      createEmptyInjuryCheckInFormState(formatDateInput(), getInitialSelectedInjuryCaseId()),
+    )
   const [nutritionFormState, setNutritionFormState] = useState<NutritionFormState>(() =>
     createEmptyNutritionFormState(),
   )
@@ -4266,6 +5569,8 @@ function App() {
     )
   const [errorMessage, setErrorMessage] = useState('')
   const [recoveryErrorMessage, setRecoveryErrorMessage] = useState('')
+  const [injuryCaseErrorMessage, setInjuryCaseErrorMessage] = useState('')
+  const [injuryCheckInErrorMessage, setInjuryCheckInErrorMessage] = useState('')
   const [nutritionErrorMessage, setNutritionErrorMessage] = useState('')
   const [workoutGeneratorMessage, setWorkoutGeneratorMessage] = useState('')
   const [workoutSuggestionOverrideState, setWorkoutSuggestionOverrideState] =
@@ -4280,6 +5585,7 @@ function App() {
 
   const deferredSessions = useDeferredValue(sessions)
   const deferredRecoveryEntries = useDeferredValue(recoveryEntries)
+  const deferredInjuryCheckIns = useDeferredValue(injuryCheckIns)
   const deferredNutritionEntries = useDeferredValue(nutritionEntries)
   const dailySeries = buildDailyLoadSeries(deferredSessions)
   const recoverySeries = buildRecoverySeries(deferredRecoveryEntries)
@@ -4295,6 +5601,65 @@ function App() {
   const recoveryHrvAverage = getRecoveryHrvAverage(recoveryEntries)
   const recoveryCheckIns = getRecoveryCheckIns(recoveryEntries)
   const recoveryBand = getRecoveryBand(latestRecoveryEntry?.score ?? null)
+  const injuryCasesById = new Map(
+    injuryCases.map((injuryCase) => [injuryCase.id, injuryCase] as const),
+  )
+  const latestInjuryCheckInByCaseId = new Map<string, InjuryCheckIn>()
+
+  injuryCheckIns.forEach((entry) => {
+    if (!latestInjuryCheckInByCaseId.has(entry.injuryId)) {
+      latestInjuryCheckInByCaseId.set(entry.injuryId, entry)
+    }
+  })
+
+  const activeInjuryCases = injuryCases.filter((injuryCase) => injuryCase.status === 'active')
+  const resolvedInjuryCases = injuryCases.filter(
+    (injuryCase) => injuryCase.status === 'resolved',
+  )
+  const fallbackSelectedInjuryCaseId =
+    activeInjuryCases[0]?.id ?? injuryCases[0]?.id ?? ''
+  const selectedInjuryCaseId =
+    selectedInjuryCaseIdState && injuryCasesById.has(selectedInjuryCaseIdState)
+      ? selectedInjuryCaseIdState
+      : fallbackSelectedInjuryCaseId
+  const activeInjuryCheckInCaseId =
+    injuryCheckInFormState.injuryId && injuryCasesById.has(injuryCheckInFormState.injuryId)
+      ? injuryCheckInFormState.injuryId
+      : selectedInjuryCaseId
+  const effectiveInjuryCheckInFormState =
+    activeInjuryCheckInCaseId === injuryCheckInFormState.injuryId
+      ? injuryCheckInFormState
+      : {
+          ...injuryCheckInFormState,
+          injuryId: activeInjuryCheckInCaseId,
+        }
+  const selectedInjuryCase = selectedInjuryCaseId
+    ? injuryCasesById.get(selectedInjuryCaseId) ?? null
+    : null
+  const injurySeries = buildInjurySeries(
+    deferredInjuryCheckIns,
+    selectedInjuryCaseId || null,
+  )
+  const selectedInjuryLatestCheckIn = getLatestInjuryCheckIn(
+    injuryCheckIns,
+    selectedInjuryCaseId || null,
+  )
+  const latestInjuryCheckIn = getLatestInjuryCheckIn(injuryCheckIns)
+  const injuryAverage = getInjuryAverage(injuryCheckIns)
+  const selectedInjuryAverage = getInjuryAverage(
+    injuryCheckIns,
+    7,
+    selectedInjuryCaseId || null,
+  )
+  const injuryCheckInCount = getInjuryCheckInCount(injuryCheckIns)
+  const activeInjuryCount = getActiveInjuryCount(injuryCases)
+  const injuryBand = getInjuryBand(latestInjuryCheckIn?.availabilityScore ?? null)
+  const selectedInjuryBand = getInjuryBand(
+    selectedInjuryLatestCheckIn?.availabilityScore ??
+      latestInjuryCheckIn?.availabilityScore ??
+      null,
+  )
+  const mostLimitingInjury = getMostLimitingInjury(injuryCases, injuryCheckIns)
   const latestNutritionEntry = nutritionEntries[0]
   const nutritionAverage = getNutritionAverage(nutritionEntries)
   const nutritionAverageCalories = getNutritionAverageCalories(nutritionEntries)
@@ -4334,6 +5699,28 @@ function App() {
       hydration,
     })
   })()
+  const injuryAvailabilityPreview = (() => {
+    const painAtRest = parsePainNumber(injuryCheckInFormState.painAtRest)
+    const painWithTraining = parsePainNumber(injuryCheckInFormState.painWithTraining)
+    const confidenceToTrain = parseConfidenceNumber(
+      injuryCheckInFormState.confidenceToTrain,
+    )
+
+    if (
+      painAtRest === null ||
+      painWithTraining === null ||
+      confidenceToTrain === null
+    ) {
+      return null
+    }
+
+    return calculateInjuryAvailabilityScore({
+      painAtRest,
+      painWithTraining,
+      confidenceToTrain,
+      modifiedTraining: injuryCheckInFormState.modifiedTraining,
+    })
+  })()
   const nutritionScorePreview = (() => {
     const calories = parsePositiveNumber(nutritionFormState.calories)
     const protein = parsePositiveNumber(nutritionFormState.protein)
@@ -4358,6 +5745,7 @@ function App() {
   })()
   const recentSessions = sessions.slice(0, 8)
   const recentRecoveryEntries = recoveryEntries.slice(0, 8)
+  const recentInjuryCheckIns = injuryCheckIns.slice(0, 10)
   const recentNutritionEntries = nutritionEntries.slice(0, 8)
   const weeklyPoints = dailySeries.slice(-7).toReversed()
   const weeklySessionCount = weeklyPoints.reduce(
@@ -4401,6 +5789,20 @@ function App() {
       JSON.stringify(recoveryEntries),
     )
   }, [recoveryEntries])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      INJURY_CASES_STORAGE_KEY,
+      JSON.stringify(injuryCases),
+    )
+  }, [injuryCases])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      INJURY_CHECK_INS_STORAGE_KEY,
+      JSON.stringify(injuryCheckIns),
+    )
+  }, [injuryCheckIns])
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -4466,6 +5868,32 @@ function App() {
       ...current,
       [field]: value,
     }))
+  }
+
+  const handleInjuryCaseInputChange = (
+    field: keyof InjuryCaseFormState,
+    value: string,
+  ) => {
+    setInjuryCaseErrorMessage('')
+    setInjuryCaseFormState((current) => ({
+      ...current,
+      [field]: value as InjuryCaseFormState[typeof field],
+    }))
+  }
+
+  const handleInjuryCheckInInputChange = (
+    field: keyof InjuryCheckInFormState,
+    value: string | boolean,
+  ) => {
+    setInjuryCheckInErrorMessage('')
+    setInjuryCheckInFormState((current) => ({
+      ...current,
+      [field]: value as InjuryCheckInFormState[typeof field],
+    }))
+
+    if (field === 'injuryId' && typeof value === 'string') {
+      setSelectedInjuryCaseId(value)
+    }
   }
 
   const handleNutritionInputChange = (
@@ -4701,6 +6129,122 @@ function App() {
     setRecoveryErrorMessage('')
   }
 
+  const handleAddInjuryCase = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const name = injuryCaseFormState.name.trim()
+
+    if (!name) {
+      setInjuryCaseErrorMessage('Give the injury case a short name first.')
+      return
+    }
+
+    if (!injuryCaseFormState.onsetDate) {
+      setInjuryCaseErrorMessage('Pick when the issue started or first showed up.')
+      return
+    }
+
+    const normalizedName = name.toLowerCase()
+    const duplicateCase = injuryCases.some(
+      (injuryCase) => injuryCase.name.trim().toLowerCase() === normalizedName,
+    )
+
+    if (duplicateCase) {
+      setInjuryCaseErrorMessage(
+        'That issue is already in the tracker. Reopen it or update the existing case instead.',
+      )
+      return
+    }
+
+    const nextCase: InjuryCase = {
+      id: createEntryId('injury-case'),
+      name,
+      bodyArea: injuryCaseFormState.bodyArea,
+      side: injuryCaseFormState.side,
+      onsetDate: injuryCaseFormState.onsetDate,
+      status: 'active',
+      notes: injuryCaseFormState.notes.trim(),
+      createdAt: new Date().toISOString(),
+      resolvedAt: null,
+    }
+
+    setInjuryCases((current) => sortInjuryCases([nextCase, ...current]))
+    setSelectedInjuryCaseId(nextCase.id)
+    setInjuryCheckInFormState((current) => ({
+      ...current,
+      injuryId: nextCase.id,
+    }))
+    setInjuryCaseFormState(createEmptyInjuryCaseFormState(injuryCaseFormState.onsetDate))
+    setInjuryCaseErrorMessage('')
+  }
+
+  const handleAddInjuryCheckIn = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const injuryId = activeInjuryCheckInCaseId
+    const painAtRest = parsePainNumber(injuryCheckInFormState.painAtRest)
+    const painWithTraining = parsePainNumber(injuryCheckInFormState.painWithTraining)
+    const confidenceToTrain = parseConfidenceNumber(
+      injuryCheckInFormState.confidenceToTrain,
+    )
+
+    if (!injuryId || !injuryCasesById.has(injuryId)) {
+      setInjuryCheckInErrorMessage('Choose which injury case this update belongs to.')
+      return
+    }
+
+    if (!injuryCheckInFormState.date) {
+      setInjuryCheckInErrorMessage('Pick a date for the injury update.')
+      return
+    }
+
+    if (
+      painAtRest === null ||
+      painWithTraining === null ||
+      confidenceToTrain === null
+    ) {
+      setInjuryCheckInErrorMessage(
+        'Complete pain and confidence fields before saving the update.',
+      )
+      return
+    }
+
+    const nextEntry: InjuryCheckIn = {
+      id: createEntryId('injury-checkin'),
+      injuryId,
+      date: injuryCheckInFormState.date,
+      painAtRest,
+      painWithTraining,
+      confidenceToTrain,
+      modifiedTraining: injuryCheckInFormState.modifiedTraining,
+      notes: injuryCheckInFormState.notes.trim(),
+      availabilityScore: calculateInjuryAvailabilityScore({
+        painAtRest,
+        painWithTraining,
+        confidenceToTrain,
+        modifiedTraining: injuryCheckInFormState.modifiedTraining,
+      }),
+      createdAt: new Date().toISOString(),
+    }
+
+    setInjuryCheckIns((current) =>
+      sortInjuryCheckIns([
+        nextEntry,
+        ...current.filter(
+          (entry) =>
+            !(
+              entry.injuryId === nextEntry.injuryId && entry.date === nextEntry.date
+            ),
+        ),
+      ]),
+    )
+    setSelectedInjuryCaseId(injuryId)
+    setInjuryCheckInFormState(
+      createEmptyInjuryCheckInFormState(injuryCheckInFormState.date, injuryId),
+    )
+    setInjuryCheckInErrorMessage('')
+  }
+
   const handleAddNutritionEntry = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -4866,6 +6410,28 @@ function App() {
     setRecoveryErrorMessage('')
   }
 
+  const handleLoadInjuryDemoData = () => {
+    if (
+      (injuryCases.length || injuryCheckIns.length) &&
+      !window.confirm('Replace your saved injury cases and updates with demo data?')
+    ) {
+      return
+    }
+
+    const demoCases = createDemoInjuryCases()
+    const demoCheckIns = createDemoInjuryCheckIns(demoCases)
+
+    setInjuryCases(demoCases)
+    setInjuryCheckIns(demoCheckIns)
+    setSelectedInjuryCaseId(
+      demoCases.find((injuryCase) => injuryCase.status === 'active')?.id ??
+        demoCases[0]?.id ??
+        '',
+    )
+    setInjuryCaseErrorMessage('')
+    setInjuryCheckInErrorMessage('')
+  }
+
   const handleLoadNutritionDemoData = () => {
     if (
       nutritionEntries.length &&
@@ -4904,6 +6470,23 @@ function App() {
     setRecoveryErrorMessage('')
   }
 
+  const handleClearInjuries = () => {
+    if (!injuryCases.length && !injuryCheckIns.length) {
+      return
+    }
+
+    if (!window.confirm('Clear every saved injury case and update from this browser?')) {
+      return
+    }
+
+    setInjuryCases([])
+    setInjuryCheckIns([])
+    setSelectedInjuryCaseId('')
+    setInjuryCheckInFormState(createEmptyInjuryCheckInFormState())
+    setInjuryCaseErrorMessage('')
+    setInjuryCheckInErrorMessage('')
+  }
+
   const handleClearNutrition = () => {
     if (!nutritionEntries.length) {
       return
@@ -4925,6 +6508,73 @@ function App() {
 
   const handleDeleteRecoveryEntry = (entryId: string) => {
     setRecoveryEntries((current) =>
+      current.filter((entry) => entry.id !== entryId),
+    )
+  }
+
+  const handleSelectInjuryCase = (injuryCaseId: string) => {
+    setSelectedInjuryCaseId(injuryCaseId)
+    setInjuryCheckInErrorMessage('')
+    setInjuryCheckInFormState((current) => ({
+      ...current,
+      injuryId: injuryCaseId,
+    }))
+  }
+
+  const handleResolveInjuryCase = (injuryCaseId: string) => {
+    setInjuryCases((current) =>
+      sortInjuryCases(
+        current.map((injuryCase) =>
+          injuryCase.id === injuryCaseId
+            ? {
+                ...injuryCase,
+                status: 'resolved',
+                resolvedAt: formatDateInput(),
+              }
+            : injuryCase,
+        ),
+      ),
+    )
+  }
+
+  const handleReopenInjuryCase = (injuryCaseId: string) => {
+    setInjuryCases((current) =>
+      sortInjuryCases(
+        current.map((injuryCase) =>
+          injuryCase.id === injuryCaseId
+            ? {
+                ...injuryCase,
+                status: 'active',
+                resolvedAt: null,
+              }
+            : injuryCase,
+        ),
+      ),
+    )
+  }
+
+  const handleDeleteInjuryCase = (injuryCaseId: string) => {
+    const injuryCase = injuryCasesById.get(injuryCaseId)
+
+    if (
+      injuryCase &&
+      !window.confirm(
+        `Remove ${injuryCase.name} and every saved update linked to it from this browser?`,
+      )
+    ) {
+      return
+    }
+
+    setInjuryCases((current) =>
+      current.filter((currentInjuryCase) => currentInjuryCase.id !== injuryCaseId),
+    )
+    setInjuryCheckIns((current) =>
+      current.filter((entry) => entry.injuryId !== injuryCaseId),
+    )
+  }
+
+  const handleDeleteInjuryCheckIn = (entryId: string) => {
+    setInjuryCheckIns((current) =>
       current.filter((entry) => entry.id !== entryId),
     )
   }
@@ -4982,6 +6632,11 @@ function App() {
         recoveryHrvAverage={recoveryHrvAverage}
         recoveryBand={recoveryBand}
         recoveryCheckIns={recoveryCheckIns}
+        latestInjuryCheckIn={latestInjuryCheckIn}
+        activeInjuryCount={activeInjuryCount}
+        injuryBand={injuryBand}
+        injuryCheckInCount={injuryCheckInCount}
+        mostLimitingInjuryCase={mostLimitingInjury?.injuryCase ?? null}
         latestNutritionEntry={latestNutritionEntry}
         nutritionAverage={nutritionAverage}
         nutritionBand={nutritionBand}
@@ -5001,6 +6656,12 @@ function App() {
             recoveryAverage={recoveryAverage}
             recoveryBand={recoveryBand}
             recoveryCheckIns={recoveryCheckIns}
+            latestInjuryCheckIn={latestInjuryCheckIn}
+            injuryAverage={injuryAverage}
+            injuryBand={injuryBand}
+            injuryCheckInCount={injuryCheckInCount}
+            activeInjuryCount={activeInjuryCount}
+            mostLimitingInjuryCase={mostLimitingInjury?.injuryCase ?? null}
             latestNutritionEntry={latestNutritionEntry}
             nutritionAverage={nutritionAverage}
             nutritionBand={nutritionBand}
@@ -5044,6 +6705,40 @@ function App() {
             recoverySeries={recoverySeries}
             recentRecoveryEntries={recentRecoveryEntries}
             onDeleteEntry={handleDeleteRecoveryEntry}
+          />
+        ) : activeSection === 'injury' ? (
+          <InjuryWorkspace
+            injuryCases={injuryCases}
+            activeInjuryCases={activeInjuryCases}
+            resolvedInjuryCases={resolvedInjuryCases}
+            selectedInjuryCase={selectedInjuryCase}
+            selectedInjuryLatestCheckIn={selectedInjuryLatestCheckIn}
+            selectedInjuryAverage={selectedInjuryAverage}
+            selectedInjuryBand={selectedInjuryBand}
+            latestInjuryCheckIn={latestInjuryCheckIn}
+            activeInjuryCount={activeInjuryCount}
+            injuryCheckInCount={injuryCheckInCount}
+            mostLimitingInjury={mostLimitingInjury}
+            injuryCaseFormState={injuryCaseFormState}
+            injuryCheckInFormState={effectiveInjuryCheckInFormState}
+            caseErrorMessage={injuryCaseErrorMessage}
+            checkInErrorMessage={injuryCheckInErrorMessage}
+            availabilityPreview={injuryAvailabilityPreview}
+            injurySeries={injurySeries}
+            latestCheckInByCaseId={latestInjuryCheckInByCaseId}
+            injuryCasesById={injuryCasesById}
+            recentInjuryCheckIns={recentInjuryCheckIns}
+            onCaseInputChange={handleInjuryCaseInputChange}
+            onCheckInInputChange={handleInjuryCheckInInputChange}
+            onAddCase={handleAddInjuryCase}
+            onAddCheckIn={handleAddInjuryCheckIn}
+            onSelectCase={handleSelectInjuryCase}
+            onResolveCase={handleResolveInjuryCase}
+            onReopenCase={handleReopenInjuryCase}
+            onDeleteCase={handleDeleteInjuryCase}
+            onDeleteCheckIn={handleDeleteInjuryCheckIn}
+            onLoadDemoData={handleLoadInjuryDemoData}
+            onClearAll={handleClearInjuries}
           />
         ) : activeSection === 'nutrition' ? (
           <NutritionWorkspace
