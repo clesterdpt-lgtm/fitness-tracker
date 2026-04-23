@@ -1,3 +1,11 @@
+import {
+  getExerciseLibraryAdjustment,
+  getExerciseLibraryVariationEntries,
+  selectExerciseLibraryEntry,
+  type ExerciseLibrarySelectionContext,
+  type ExerciseLibrarySelectionMode,
+} from './exerciseLibrary'
+import type { InjuryBodyArea } from './injury'
 import { createSessionLoad } from './workload'
 
 export type WorkoutGeneratorGoal =
@@ -98,6 +106,9 @@ export type WorkoutGeneratorInput = {
   weeklySessionCount: number
   homeEquipment: HomeEquipmentId[]
   customHomeEquipment: CustomHomeEquipment[]
+  activeInjuryBodyAreas: InjuryBodyArea[]
+  injuryRestrictionTags: string[]
+  injuryAvailabilityScore: number | null
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -256,6 +267,272 @@ function createExercise(
   return { name, prescription, detail, timeboxMinutes }
 }
 
+function createExerciseLibrarySelectionContext(
+  input: WorkoutGeneratorInput,
+  readiness: WorkoutReadiness,
+): ExerciseLibrarySelectionContext {
+  return {
+    activeConditionTags: input.injuryRestrictionTags,
+    activeBodyAreas: input.activeInjuryBodyAreas,
+    injuryAvailabilityScore: input.injuryAvailabilityScore,
+    readinessCap: readiness.cap,
+  }
+}
+
+type ExerciseLibraryWorkoutSlot = {
+  movementPatterns: string[]
+  name: string
+  prescription: string
+  detail: string
+  timeboxMinutes?: number
+}
+
+function getExerciseLibrarySelectionMode(
+  mode: WorkoutGeneratorMode,
+): ExerciseLibrarySelectionMode | null {
+  if (mode === 'gym' || mode === 'mixed' || mode === 'home') {
+    return mode
+  }
+
+  return null
+}
+
+function getHomeExerciseLibraryEquipmentTags(
+  homeEquipment: HomeEquipmentId[],
+  customHomeEquipment: CustomHomeEquipment[],
+) {
+  const equipmentTags = new Set(['bodyweight'])
+
+  if (hasHomeEquipment(homeEquipment, 'dumbbells')) {
+    equipmentTags.add('dumbbell')
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'barbell')) {
+    equipmentTags.add('barbell')
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'kettlebell')) {
+    equipmentTags.add('kettlebell')
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'resistance-bands')) {
+    equipmentTags.add('band')
+  }
+
+  if (hasHomeEquipment(homeEquipment, 'medicine-ball')) {
+    equipmentTags.add('medicine_ball')
+  }
+
+  if (hasCustomEquipmentCategory(customHomeEquipment, ['free-weights'])) {
+    equipmentTags.add('dumbbell')
+    equipmentTags.add('kettlebell')
+  }
+
+  if (hasCustomEquipmentCategory(customHomeEquipment, ['strength-setup'])) {
+    equipmentTags.add('barbell')
+    equipmentTags.add('dumbbell')
+  }
+
+  if (
+    hasCustomEquipmentCategory(customHomeEquipment, ['pulling-suspension'])
+  ) {
+    equipmentTags.add('band')
+  }
+
+  if (
+    hasCustomEquipmentCategory(customHomeEquipment, ['power-conditioning'])
+  ) {
+    equipmentTags.add('medicine_ball')
+    equipmentTags.add('sled')
+  }
+
+  return Array.from(equipmentTags)
+}
+
+function getAllowedExerciseLibraryEquipment(input: WorkoutGeneratorInput) {
+  if (input.mode !== 'home') {
+    return null
+  }
+
+  return getHomeExerciseLibraryEquipmentTags(
+    input.homeEquipment,
+    input.customHomeEquipment,
+  )
+}
+
+function createExerciseLibrarySlotPicker(
+  input: WorkoutGeneratorInput,
+  readiness: WorkoutReadiness | null,
+) {
+  const mode = getExerciseLibrarySelectionMode(input.mode)
+  const selectionReadiness =
+    readiness ??
+    getReadiness({
+      ...input,
+      availableMinutes: normalizeDuration(input.availableMinutes),
+    })
+  const context = createExerciseLibrarySelectionContext(input, selectionReadiness)
+  const usedNames: string[] = []
+
+  return (slot: ExerciseLibraryWorkoutSlot) => {
+    const fallbackExercise = createExercise(
+      slot.name,
+      slot.prescription,
+      slot.detail,
+      slot.timeboxMinutes,
+    )
+
+    if (!mode) {
+      usedNames.push(fallbackExercise.name)
+      return fallbackExercise
+    }
+
+    const selection = selectExerciseLibraryEntry({
+      movementPatterns: slot.movementPatterns,
+      context,
+      goal: input.goal,
+      mode,
+      allowedEquipment: getAllowedExerciseLibraryEquipment(input),
+      excludedNames: usedNames,
+    })
+
+    if (!selection) {
+      usedNames.push(fallbackExercise.name)
+      return fallbackExercise
+    }
+
+    const selectedExercise = createExercise(
+      selection.entry.name,
+      slot.prescription,
+      appendExerciseDetailNote(
+        slot.detail,
+        `Library pick: ${selection.reason}.`,
+      ),
+      slot.timeboxMinutes,
+    )
+
+    usedNames.push(selectedExercise.name)
+    return selectedExercise
+  }
+}
+
+function appendExerciseDetailNote(detail: string, note: string) {
+  const normalizedDetail = detail.trim()
+
+  if (!normalizedDetail) {
+    return note
+  }
+
+  return `${normalizedDetail}${normalizedDetail.endsWith('.') ? '' : '.'} ${note}`
+}
+
+function formatExerciseLibraryReasons(reasons: string[]) {
+  if (!reasons.length) {
+    return 'lower overall stress'
+  }
+
+  if (reasons.length === 1) {
+    return reasons[0]
+  }
+
+  if (reasons.length === 2) {
+    return `${reasons[0]} and ${reasons[1]}`
+  }
+
+  return `${reasons.slice(0, -1).join(', ')}, and ${reasons.at(-1)}`
+}
+
+function buildExerciseLibraryVariationOptions(
+  exercise: WorkoutExerciseSuggestion,
+  context: ExerciseLibrarySelectionContext,
+) {
+  return getExerciseLibraryVariationEntries(exercise.name, context).map((entry) =>
+    createExercise(
+      entry.name,
+      exercise.prescription,
+      appendExerciseDetailNote(
+        exercise.detail,
+        'Library regression to keep the movement slot while lowering stress.',
+      ),
+      exercise.timeboxMinutes,
+    ),
+  )
+}
+
+function buildExerciseLibraryAdjustmentNotes(
+  suggestionLabel: string,
+  injurySwapCount: number,
+  fatigueSwapCount: number,
+) {
+  const notes: string[] = []
+
+  if (injurySwapCount) {
+    notes.push(
+      `${suggestionLabel}: ${injurySwapCount} movement${
+        injurySwapCount === 1 ? '' : 's'
+      } regressed from the exercise library to reduce injury risk.`,
+    )
+  }
+
+  if (fatigueSwapCount) {
+    notes.push(
+      `${suggestionLabel}: ${fatigueSwapCount} movement${
+        fatigueSwapCount === 1 ? '' : 's'
+      } regressed to stay inside the readiness cap.`,
+    )
+  }
+
+  return notes
+}
+
+function applyExerciseLibraryToSuggestion(
+  suggestion: WorkoutSuggestion,
+  context: ExerciseLibrarySelectionContext,
+) {
+  let injurySwapCount = 0
+  let fatigueSwapCount = 0
+
+  const adjustedExercises = suggestion.exercises.map((exercise) => {
+    const adjustment = getExerciseLibraryAdjustment(exercise.name, context)
+
+    if (!adjustment?.replacementEntry) {
+      return exercise
+    }
+
+    if (adjustment.hasInjuryRisk) {
+      injurySwapCount += 1
+    } else if (adjustment.hasFatigueRisk) {
+      fatigueSwapCount += 1
+    }
+
+    return {
+      ...exercise,
+      name: adjustment.replacementEntry.name,
+      detail: appendExerciseDetailNote(
+        exercise.detail,
+        `Adjusted from ${exercise.name} for ${formatExerciseLibraryReasons(
+          adjustment.reasons,
+        )}.`,
+      ),
+    }
+  })
+
+  return {
+    suggestion: {
+      ...suggestion,
+      exercises: fitExercisesToDuration(
+        dedupeAdjacentExercises(adjustedExercises),
+        suggestion.duration,
+      ),
+    },
+    notes: buildExerciseLibraryAdjustmentNotes(
+      suggestion.label,
+      injurySwapCount,
+      fatigueSwapCount,
+    ),
+  }
+}
+
 type ExerciseIntent = 'warmup' | 'quality' | 'steady' | 'strength' | 'recovery'
 
 function getExerciseSearchText(exercise: WorkoutExerciseSuggestion) {
@@ -266,17 +543,54 @@ function getExerciseMovementFamily(exercise: WorkoutExerciseSuggestion) {
   const text = getExerciseSearchText(exercise)
 
   const movementMatchers: Array<[string, RegExp[]]> = [
-    ['row', [/\brow(?:er|ing)?\b/]],
+    [
+      'row',
+      [
+        /\brower\b/,
+        /\browing\b/,
+        /\brow(?:er)?\s+(?:intervals|warm-up|block)\b/,
+        /\beasy row\b/,
+        /\bsteady row\b/,
+        /\brow or\b/,
+        /\bor row\b/,
+      ],
+    ],
     ['bike', [/\bbike\b/, /\bspin\b/, /\bcycling?\b/, /\bpedal(?:ing)?\b/]],
     ['run', [/\brun(?:ning)?\b/, /\bjog(?:ging)?\b/, /\bstride(?:s)?\b/]],
     ['walk', [/\bwalk(?:ing)?\b/, /\btreadmill\b/]],
     ['jump-rope', [/\bjump rope\b/, /\brope skip\b/, /\brope\b/]],
     ['drill', [/\bskip\b/, /\bdrill\b/, /\bmarch\b/, /\bankling\b/]],
-    ['power', [/\bslam\b/, /\bbound\b/, /\bexplosive\b/, /\btoss\b/, /\bscoop\b/, /\bsquat jump\b/]],
-    ['squat', [/\bsquat\b/, /\blunge\b/, /\bstep-up\b/]],
-    ['hinge', [/\bdeadlift\b/, /\bhinge\b/, /\bswing\b/, /\bbridge\b/]],
+    [
+      'power',
+      [
+        /\bslam\b/,
+        /\bbound\b/,
+        /\bexplosive\b/,
+        /\btoss\b/,
+        /\bscoop\b/,
+        /\bsquat jump\b/,
+        /\bjump\b/,
+        /\bpogo\b/,
+        /\bskater hop\b/,
+      ],
+    ],
+    ['squat', [/\bsquat\b/, /\blunge\b/, /\bstep-up\b/, /\bsplit squat\b/, /\bwall sit\b/, /\bleg press\b/]],
+    [
+      'hinge',
+      [
+        /\bdeadlift\b/,
+        /\bhinge\b/,
+        /\bswing\b/,
+        /\bbridge\b/,
+        /\bcurl\b/,
+        /\bhamstring\b/,
+        /\bgood morning\b/,
+        /\bhip thrust\b/,
+        /\brdl\b/,
+      ],
+    ],
     ['push', [/\bpush-up\b/, /\bpress\b/]],
-    ['pull', [/\bpull-up\b/, /\bsuspension row\b/, /\bband row\b/]],
+    ['pull', [/\bpull-up\b/, /\bchin-up\b/, /\brow\b/, /\bface pull\b/, /\bprone swimmer\b/]],
     ['carry', [/\bcarry\b/, /\bsuitcase march\b/]],
     ['core', [/\bdead bug\b/, /\bside plank\b/, /\bpallof\b/, /\bbreathing\b/, /\bplank\b/]],
     ['mobility', [/\bmobility\b/, /\bstretch\b/, /\brotation\b/, /\bflow\b/, /\bfoam roll\b/]],
@@ -287,6 +601,47 @@ function getExerciseMovementFamily(exercise: WorkoutExerciseSuggestion) {
   )
 
   return match?.[0] ?? null
+}
+
+function getRelatedMovementFamilies(movementFamily: string | null) {
+  const cardioFamilies = ['row', 'bike', 'run', 'walk', 'jump-rope']
+  const relatedFamilies: Record<string, string[]> = {
+    row: cardioFamilies,
+    bike: cardioFamilies,
+    run: cardioFamilies,
+    walk: cardioFamilies,
+    'jump-rope': cardioFamilies,
+    drill: ['drill', 'mobility'],
+    power: ['power'],
+    squat: ['squat'],
+    hinge: ['hinge'],
+    push: ['push'],
+    pull: ['pull'],
+    carry: ['carry', 'core'],
+    core: ['core', 'carry'],
+    mobility: ['mobility'],
+  }
+
+  return movementFamily ? relatedFamilies[movementFamily] ?? [movementFamily] : []
+}
+
+function isCompatibleExerciseVariation(
+  currentExercise: WorkoutExerciseSuggestion,
+  candidate: WorkoutExerciseSuggestion,
+) {
+  const currentFamily = getExerciseMovementFamily(currentExercise)
+
+  if (!currentFamily) {
+    return true
+  }
+
+  const candidateFamily = getExerciseMovementFamily(candidate)
+
+  if (!candidateFamily) {
+    return false
+  }
+
+  return getRelatedMovementFamilies(currentFamily).includes(candidateFamily)
 }
 
 function getExerciseIntent(exercise: WorkoutExerciseSuggestion): ExerciseIntent {
@@ -1188,11 +1543,14 @@ function buildBikeExercises(
 }
 
 function buildGymExercises(
-  goal: WorkoutGeneratorGoal,
+  input: WorkoutGeneratorInput,
   suggestionId: WorkoutSuggestion['id'],
   duration: number,
   readiness: WorkoutReadiness | null,
 ) {
+  const goal = input.goal
+  const pickLibraryExercise = createExerciseLibrarySlotPicker(input, readiness)
+
   if (suggestionId === 'lighter') {
     return [
       createExercise(
@@ -1200,21 +1558,24 @@ function buildGymExercises(
         '5-8 min',
         'Bring temperature up without adding fatigue.',
       ),
-      createExercise(
-        'Dead bug',
-        '2 x 8 each side',
-        'Get the trunk on before any loaded work.',
-      ),
-      createExercise(
-        'Goblet squat',
-        '2 x 8',
-        'Stay light and smooth rather than chasing load.',
-      ),
-      createExercise(
-        'Farmer carry',
-        '3 x 20 m',
-        'Finish with posture and breathing instead of more volume.',
-      ),
+      pickLibraryExercise({
+        movementPatterns: ['carry', 'rotation'],
+        name: 'Dead bug',
+        prescription: '2 x 8 each side',
+        detail: 'Get the trunk on before any loaded work.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['squat', 'lunge'],
+        name: 'Goblet squat',
+        prescription: '2 x 8',
+        detail: 'Stay light and smooth rather than chasing load.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['carry'],
+        name: 'Farmer carry',
+        prescription: '3 x 20 m',
+        detail: 'Finish with posture and breathing instead of more volume.',
+      }),
     ]
   }
 
@@ -1245,26 +1606,30 @@ function buildGymExercises(
     }
 
     return [
-      createExercise(
-        'Rear-foot-elevated split squat',
-        '3 x 6 each leg',
-        'Support single-leg force production for running and riding.',
-      ),
-      createExercise(
-        'Dumbbell Romanian deadlift',
-        '3 x 8',
-        'Build hinge strength without a full heavy day.',
-      ),
-      createExercise(
-        'Chest-supported row',
-        '3 x 10',
-        'Give the upper back some work without frying grip or low back.',
-      ),
-      createExercise(
-        'Pallof press',
-        '2 x 10 each side',
-        'Lock in trunk control to support the main sport work.',
-      ),
+      pickLibraryExercise({
+        movementPatterns: ['lunge', 'squat'],
+        name: 'Rear-foot-elevated split squat',
+        prescription: '3 x 6 each leg',
+        detail: 'Support single-leg force production for running and riding.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['hinge'],
+        name: 'Dumbbell Romanian deadlift',
+        prescription: '3 x 8',
+        detail: 'Build hinge strength without a full heavy day.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['pull'],
+        name: 'Chest-supported row',
+        prescription: '3 x 10',
+        detail: 'Give the upper back some work without frying grip or low back.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['rotation', 'carry'],
+        name: 'Pallof press',
+        prescription: '2 x 10 each side',
+        detail: 'Lock in trunk control to support the main sport work.',
+      }),
     ]
   }
 
@@ -1276,77 +1641,92 @@ function buildGymExercises(
           '8 min',
           'Ease into a rhythm before the circuit begins.',
         ),
-        createExercise(
-          'Goblet squat',
-          '3 x 10',
-          'Keep reps smooth and leave a little in reserve.',
-        ),
-        createExercise(
-          'Dumbbell Romanian deadlift',
-          '3 x 10',
-          'Build posterior-chain endurance without grinding.',
-        ),
-        createExercise(
-          'Chest-supported row',
-          '3 x 12',
-          'Balance out pressing and posture in the circuit.',
-        ),
-        createExercise(
-          'Farmer carry',
-          '3 x 30 m',
-          'Finish each round with full-body tension and breathing control.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['squat', 'lunge'],
+          name: 'Goblet squat',
+          prescription: '3 x 10',
+          detail: 'Keep reps smooth and leave a little in reserve.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Dumbbell Romanian deadlift',
+          prescription: '3 x 10',
+          detail: 'Build posterior-chain endurance without grinding.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['pull'],
+          name: 'Chest-supported row',
+          prescription: '3 x 12',
+          detail: 'Balance out pressing and posture in the circuit.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry'],
+          name: 'Farmer carry',
+          prescription: '3 x 30 m',
+          detail:
+            'Finish each round with full-body tension and breathing control.',
+        }),
       ]
     case 'speed':
       return [
-        createExercise(
-          'Medicine-ball scoop toss',
-          '4 x 4',
-          'Use intent and crisp reps rather than max effort.',
-        ),
-        createExercise(
-          'Kettlebell swing',
-          '4 x 8',
-          'Drive the hinge sharply, then reset every rep.',
-        ),
-        createExercise(
-          'Explosive step-up',
-          '3 x 6 each leg',
-          'Move fast up and stay controlled down.',
-        ),
-        createExercise(
-          'Incline plyo push-up',
-          '3 x 5',
-          'Keep it snappy and stop when speed fades.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['push', 'rotation'],
+          name: 'Medicine-ball scoop toss',
+          prescription: '4 x 4',
+          detail: 'Use intent and crisp reps rather than max effort.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Kettlebell swing',
+          prescription: '4 x 8',
+          detail: 'Drive the hinge sharply, then reset every rep.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['jump', 'lunge', 'squat'],
+          name: 'Explosive step-up',
+          prescription: '3 x 6 each leg',
+          detail: 'Move fast up and stay controlled down.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['push'],
+          name: 'Incline plyo push-up',
+          prescription: '3 x 5',
+          detail: 'Keep it snappy and stop when speed fades.',
+        }),
       ]
     case 'strength':
       return [
-        createExercise(
-          'Trap-bar deadlift or goblet squat',
-          readiness?.cap === 'high' ? '4 x 4-6' : '3 x 5-6',
-          'Use the main lift as the anchor and keep a couple reps in reserve.',
-        ),
-        createExercise(
-          'Rear-foot-elevated split squat',
-          '3 x 6 each leg',
-          'Pair unilateral control with the main lift.',
-        ),
-        createExercise(
-          'Dumbbell bench or landmine press',
-          '3 x 6-8',
-          'Press hard without turning the set into a grind.',
-        ),
-        createExercise(
-          'Chest-supported row',
-          '3 x 8',
-          'Keep upper-back work strong and stable.',
-        ),
-        createExercise(
-          'Farmer carry',
-          '3 x 30 m',
-          'Finish with posture and trunk stiffness.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['hinge', 'squat'],
+          name: 'Trap-bar deadlift or goblet squat',
+          prescription: readiness?.cap === 'high' ? '4 x 4-6' : '3 x 5-6',
+          detail:
+            'Use the main lift as the anchor and keep a couple reps in reserve.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['lunge', 'squat'],
+          name: 'Rear-foot-elevated split squat',
+          prescription: '3 x 6 each leg',
+          detail: 'Pair unilateral control with the main lift.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['push'],
+          name: 'Dumbbell bench or landmine press',
+          prescription: '3 x 6-8',
+          detail: 'Press hard without turning the set into a grind.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['pull'],
+          name: 'Chest-supported row',
+          prescription: '3 x 8',
+          detail: 'Keep upper-back work strong and stable.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry'],
+          name: 'Farmer carry',
+          prescription: '3 x 30 m',
+          detail: 'Finish with posture and trunk stiffness.',
+        }),
       ]
     case 'recovery':
       return [
@@ -1360,27 +1740,31 @@ function buildGymExercises(
           '2 rounds',
           'Open the hips, hamstrings, and thoracic spine.',
         ),
-        createExercise(
-          'Sled push or easy bike block',
-          '6 x 20 m sled or 10 min easy bike',
-          'Choose the option that feels most restorative today.',
-        ),
-        createExercise(
-          'Dead bug',
-          '2 x 8 each side',
-          'Give the trunk a little support without creating fatigue.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['run', 'carry'],
+          name: 'Sled push or easy bike block',
+          prescription: '6 x 20 m sled or 10 min easy bike',
+          detail: 'Choose the option that feels most restorative today.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Dead bug',
+          prescription: '2 x 8 each side',
+          detail: 'Give the trunk a little support without creating fatigue.',
+        }),
       ]
   }
 }
 
 function buildMixedExercises(
-  goal: WorkoutGeneratorGoal,
+  input: WorkoutGeneratorInput,
   suggestionId: WorkoutSuggestion['id'],
   duration: number,
   readiness: WorkoutReadiness | null,
 ) {
+  const goal = input.goal
   const mainMinutes = getExerciseMainMinutes(duration)
+  const pickLibraryExercise = createExerciseLibrarySlotPicker(input, readiness)
 
   if (suggestionId === 'lighter') {
     return [
@@ -1434,26 +1818,30 @@ function buildMixedExercises(
     }
 
     return [
-      createExercise(
-        'Walking lunge',
-        '3 x 8 each leg',
-        'Simple unilateral strength that carries into most sports.',
-      ),
-      createExercise(
-        'Push-up or dumbbell floor press',
-        '3 x 8',
-        'Keep pressing strength topped up without a full gym day.',
-      ),
-      createExercise(
-        'Band or suspension row',
-        '3 x 10',
-        'Balance the shoulders and upper back.',
-      ),
-      createExercise(
-        'Suitcase carry',
-        '3 x 20 m each side',
-        'Make the trunk and posture work a little harder.',
-      ),
+      pickLibraryExercise({
+        movementPatterns: ['lunge', 'squat'],
+        name: 'Walking lunge',
+        prescription: '3 x 8 each leg',
+        detail: 'Simple unilateral strength that carries into most sports.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['push'],
+        name: 'Push-up or dumbbell floor press',
+        prescription: '3 x 8',
+        detail: 'Keep pressing strength topped up without a full gym day.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['pull'],
+        name: 'Band or suspension row',
+        prescription: '3 x 10',
+        detail: 'Balance the shoulders and upper back.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['carry'],
+        name: 'Suitcase carry',
+        prescription: '3 x 20 m each side',
+        detail: 'Make the trunk and posture work a little harder.',
+      }),
     ]
   }
 
@@ -1465,26 +1853,29 @@ function buildMixedExercises(
           '5 min',
           'Open the session with light elastic work or easy spin.',
         ),
-        createExercise(
-          'Step-up',
-          '3 x 10 each leg',
-          'Build simple aerobic strength through the legs.',
-        ),
-        createExercise(
-          'Kettlebell deadlift',
-          '3 x 10',
-          'Keep the hinge pattern smooth and sustainable.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['squat', 'lunge'],
+          name: 'Step-up',
+          prescription: '3 x 10 each leg',
+          detail: 'Build simple aerobic strength through the legs.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Kettlebell deadlift',
+          prescription: '3 x 10',
+          detail: 'Keep the hinge pattern smooth and sustainable.',
+        }),
         createExercise(
           'Row or brisk walk block',
           '3 x 6 min',
           'Use steady chunks of cardio to anchor the main work.',
         ),
-        createExercise(
-          'Bear crawl',
-          '3 x 20 m',
-          'Finish with trunk and shoulder integration.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Bear crawl',
+          prescription: '3 x 20 m',
+          detail: 'Finish with trunk and shoulder integration.',
+        }),
       ]
     case 'speed':
       return [
@@ -1493,11 +1884,12 @@ function buildMixedExercises(
           '4 x 20 sec',
           'Wake up foot speed and rhythm without fatigue.',
         ),
-        createExercise(
-          'Lateral bounds',
-          '3 x 5 each side',
-          'Stay crisp and stick each landing.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['jump'],
+          name: 'Lateral bounds',
+          prescription: '3 x 5 each side',
+          detail: 'Stay crisp and stick each landing.',
+        }),
         createExercise(
           'Rower or bike intervals',
           readiness?.cap === 'high'
@@ -1507,39 +1899,45 @@ function buildMixedExercises(
               : `${mainMinutes} min easy cardio with short fast touches`,
           'Use quality reps, not desperate ones.',
         ),
-        createExercise(
-          'Medicine-ball slam',
-          '4 x 6',
-          'Drive power down and recover fully.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['rotation', 'push'],
+          name: 'Medicine-ball slam',
+          prescription: '4 x 6',
+          detail: 'Drive power down and recover fully.',
+        }),
       ]
     case 'strength':
       return [
-        createExercise(
-          'Rear-foot-elevated split squat',
-          '3 x 8 each leg',
-          'Lead with single-leg strength before fatigue builds.',
-        ),
-        createExercise(
-          'Push-up or dumbbell floor press',
-          '3 x 8',
-          'Keep reps smooth and positions honest.',
-        ),
-        createExercise(
-          'Band row or suspension row',
-          '3 x 10',
-          'Balance the pressing and support posture.',
-        ),
-        createExercise(
-          'Kettlebell Romanian deadlift',
-          '3 x 10',
-          'Build hinge strength with a moderate fatigue cost.',
-        ),
-        createExercise(
-          'Suitcase carry',
-          '3 x 20 m each side',
-          'Finish with full-body stiffness and control.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['lunge', 'squat'],
+          name: 'Rear-foot-elevated split squat',
+          prescription: '3 x 8 each leg',
+          detail: 'Lead with single-leg strength before fatigue builds.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['push'],
+          name: 'Push-up or dumbbell floor press',
+          prescription: '3 x 8',
+          detail: 'Keep reps smooth and positions honest.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['pull'],
+          name: 'Band row or suspension row',
+          prescription: '3 x 10',
+          detail: 'Balance the pressing and support posture.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Kettlebell Romanian deadlift',
+          prescription: '3 x 10',
+          detail: 'Build hinge strength with a moderate fatigue cost.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry'],
+          name: 'Suitcase carry',
+          prescription: '3 x 20 m each side',
+          detail: 'Finish with full-body stiffness and control.',
+        }),
       ]
     case 'recovery':
       return [
@@ -1553,16 +1951,18 @@ function buildMixedExercises(
           '2 rounds',
           'Restore spinal movement before the flow begins.',
         ),
-        createExercise(
-          'Glute bridge',
-          '2 x 10',
-          'Switch on the posterior chain without stress.',
-        ),
-        createExercise(
-          'Dead bug',
-          '2 x 8 each side',
-          'Add a little trunk control to the recovery day.',
-        ),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Glute bridge',
+          prescription: '2 x 10',
+          detail: 'Switch on the posterior chain without stress.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Dead bug',
+          prescription: '2 x 8 each side',
+          detail: 'Add a little trunk control to the recovery day.',
+        }),
       ]
   }
 }
@@ -2463,14 +2863,15 @@ function createHomeMobilityExercise(
 }
 
 function buildHomeExercises(
-  goal: WorkoutGeneratorGoal,
+  input: WorkoutGeneratorInput,
   suggestionId: WorkoutSuggestion['id'],
   duration: number,
   readiness: WorkoutReadiness | null,
-  homeEquipment: HomeEquipmentId[],
-  customHomeEquipment: CustomHomeEquipment[],
 ) {
+  const goal = input.goal
+  const { homeEquipment, customHomeEquipment } = input
   const mainMinutes = getExerciseMainMinutes(duration)
+  const pickLibraryExercise = createExerciseLibrarySlotPicker(input, readiness)
 
   if (suggestionId === 'lighter') {
     return [
@@ -2482,7 +2883,12 @@ function buildHomeExercises(
         customHomeEquipment,
         'easy',
       ),
-      createHomeCoreExercise(homeEquipment, customHomeEquipment),
+      pickLibraryExercise({
+        movementPatterns: ['carry', 'rotation'],
+        name: 'Dead bug',
+        prescription: '3 x 6 each side',
+        detail: 'Keep the trunk quiet and leave the session feeling better.',
+      }),
     ]
   }
 
@@ -2502,10 +2908,30 @@ function buildHomeExercises(
     }
 
     return [
-      createHomeLowerStrengthExercise(homeEquipment, customHomeEquipment),
-      createHomePushExercise(homeEquipment, customHomeEquipment),
-      createHomePullExercise(homeEquipment, customHomeEquipment),
-      createHomeCoreExercise(homeEquipment, customHomeEquipment),
+      pickLibraryExercise({
+        movementPatterns: ['squat', 'lunge'],
+        name: 'Home lower-body strength',
+        prescription: '3 x 8 each side',
+        detail: 'Choose the strongest available lower-body pattern at home.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['push'],
+        name: 'Home push strength',
+        prescription: '3 x 8',
+        detail: 'Keep pressing strength topped up without a full gym day.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['pull'],
+        name: 'Home pull strength',
+        prescription: '3 x 8-10',
+        detail: 'Balance the shoulders and upper back with available tools.',
+      }),
+      pickLibraryExercise({
+        movementPatterns: ['carry', 'rotation'],
+        name: 'Home trunk support',
+        prescription: '3 x 20-30 sec',
+        detail: 'Make the trunk and posture work a little harder.',
+      }),
     ]
   }
 
@@ -2519,14 +2945,34 @@ function buildHomeExercises(
           customHomeEquipment,
           'steady',
         ),
-        createHomeLowerStrengthExercise(homeEquipment, customHomeEquipment),
-        createHomeHingeExercise(homeEquipment, customHomeEquipment),
-        createHomeCoreExercise(homeEquipment, customHomeEquipment),
+        pickLibraryExercise({
+          movementPatterns: ['squat', 'lunge'],
+          name: 'Home lower-body strength',
+          prescription: '3 x 10',
+          detail: 'Build simple aerobic strength through the legs.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Home hinge strength',
+          prescription: '3 x 10',
+          detail: 'Keep the hinge pattern smooth and sustainable.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Home trunk support',
+          prescription: '3 x 20-30 sec',
+          detail: 'Finish with trunk control that does not spike fatigue.',
+        }),
       ]
     case 'speed':
       return [
         createHomeWarmupExercise(homeEquipment, customHomeEquipment),
-        createHomePowerExercise(homeEquipment, customHomeEquipment),
+        pickLibraryExercise({
+          movementPatterns: ['jump', 'push', 'rotation'],
+          name: 'Home power exercise',
+          prescription: '4 x 5',
+          detail: 'Use crisp power reps and stop before speed fades.',
+        }),
         createHomeIntervalExercise(
           goal,
           mainMinutes,
@@ -2534,17 +2980,52 @@ function buildHomeExercises(
           homeEquipment,
           customHomeEquipment,
         ),
-        createHomePushExercise(homeEquipment, customHomeEquipment),
-        createHomeCoreExercise(homeEquipment, customHomeEquipment),
+        pickLibraryExercise({
+          movementPatterns: ['push'],
+          name: 'Home push strength',
+          prescription: '3 x 8',
+          detail: 'Keep the upper-body slot snappy and technically clean.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Home trunk support',
+          prescription: '3 x 20-30 sec',
+          detail: 'Keep the trunk organized after the faster work.',
+        }),
       ]
     case 'strength':
       return [
         createHomeWarmupExercise(homeEquipment, customHomeEquipment),
-        createHomeLowerStrengthExercise(homeEquipment, customHomeEquipment),
-        createHomeHingeExercise(homeEquipment, customHomeEquipment),
-        createHomePushExercise(homeEquipment, customHomeEquipment),
-        createHomePullExercise(homeEquipment, customHomeEquipment),
-        createHomeCoreExercise(homeEquipment, customHomeEquipment),
+        pickLibraryExercise({
+          movementPatterns: ['squat', 'lunge'],
+          name: 'Home lower-body strength',
+          prescription: '3-4 x 6-8',
+          detail: 'Use the best available lower-body strength option.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['hinge'],
+          name: 'Home hinge strength',
+          prescription: '3 x 8',
+          detail: 'Pair the lower-body slot with a clean hinge pattern.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['push'],
+          name: 'Home push strength',
+          prescription: '3 x 6-8',
+          detail: 'Press hard without turning the set into a grind.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['pull'],
+          name: 'Home pull strength',
+          prescription: '3 x 8-10',
+          detail: 'Balance the pressing and support posture.',
+        }),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Home trunk support',
+          prescription: '3 x 20-30 sec',
+          detail: 'Finish with full-body stiffness and control.',
+        }),
       ]
     case 'recovery':
       return [
@@ -2560,7 +3041,12 @@ function buildHomeExercises(
           homeEquipment,
           customHomeEquipment,
         ),
-        createHomeCoreExercise(homeEquipment, customHomeEquipment),
+        pickLibraryExercise({
+          movementPatterns: ['carry', 'rotation'],
+          name: 'Home trunk support',
+          prescription: '2 x 8 each side',
+          detail: 'Add a little trunk control to the recovery day.',
+        }),
       ]
   }
 }
@@ -3918,9 +4404,23 @@ function buildExerciseVariationOptions(
   input: WorkoutGeneratorInput,
   suggestion: WorkoutSuggestion,
   exercise: WorkoutExerciseSuggestion,
+  originalExercise?: WorkoutExerciseSuggestion,
 ) {
   const movementFamily = getExerciseMovementFamily(exercise)
   const intent = getExerciseIntent(exercise)
+  const readiness = getReadiness({
+    ...input,
+    availableMinutes: normalizeDuration(input.availableMinutes),
+  })
+  const libraryOptions = buildExerciseLibraryVariationOptions(
+    exercise,
+    createExerciseLibrarySelectionContext(input, readiness),
+  )
+  const baseOptions = [
+    exercise,
+    ...(originalExercise ? [originalExercise] : []),
+    ...libraryOptions,
+  ]
   const universalOptions = buildUniversalVariationOptions(movementFamily, intent)
   const fallbackOptions = movementFamily
     ? [createMovementVariation(movementFamily, exercise)]
@@ -3934,15 +4434,12 @@ function buildExerciseVariationOptions(
       case 'walk':
       case 'jump-rope':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...(intent === 'quality'
             ? buildHomeIntervalVariationOptions(
                 input.goal,
                 getExerciseMainMinutes(suggestion.duration),
-                getReadiness({
-                  ...input,
-                  availableMinutes: normalizeDuration(input.availableMinutes),
-                }),
+                readiness,
                 input.homeEquipment,
                 input.customHomeEquipment,
               )
@@ -3962,7 +4459,7 @@ function buildExerciseVariationOptions(
         ])
       case 'drill':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomeWarmupVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -3972,7 +4469,7 @@ function buildExerciseVariationOptions(
         ])
       case 'squat':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomeSquatVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -3982,7 +4479,7 @@ function buildExerciseVariationOptions(
         ])
       case 'hinge':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomeHingeVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -3992,7 +4489,7 @@ function buildExerciseVariationOptions(
         ])
       case 'push':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomePushVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -4002,7 +4499,7 @@ function buildExerciseVariationOptions(
         ])
       case 'pull':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomePullVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -4013,7 +4510,7 @@ function buildExerciseVariationOptions(
       case 'carry':
       case 'core':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomeCarryVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -4023,7 +4520,7 @@ function buildExerciseVariationOptions(
         ])
       case 'mobility':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomeMobilityVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -4033,7 +4530,7 @@ function buildExerciseVariationOptions(
         ])
       case 'power':
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomePowerVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -4043,7 +4540,7 @@ function buildExerciseVariationOptions(
         ])
       default:
         return dedupeExerciseOptions([
-          exercise,
+          ...baseOptions,
           ...buildHomeMobilityVariationOptions(
             input.homeEquipment,
             input.customHomeEquipment,
@@ -4057,14 +4554,14 @@ function buildExerciseVariationOptions(
   switch (movementFamily) {
     case 'run':
       return dedupeExerciseOptions([
-        exercise,
+        ...baseOptions,
         ...buildRunVariationOptions(intent, suggestion.duration),
         ...universalOptions,
         ...fallbackOptions,
       ])
     case 'bike':
       return dedupeExerciseOptions([
-        exercise,
+        ...baseOptions,
         ...buildBikeVariationOptions(intent, suggestion.duration),
         ...universalOptions,
         ...fallbackOptions,
@@ -4073,7 +4570,7 @@ function buildExerciseVariationOptions(
     case 'walk':
     case 'jump-rope':
       return dedupeExerciseOptions([
-        exercise,
+        ...baseOptions,
         ...buildGenericCardioVariationOptions(
           movementFamily,
           intent,
@@ -4084,7 +4581,7 @@ function buildExerciseVariationOptions(
       ])
     case 'drill':
       return dedupeExerciseOptions([
-        exercise,
+        ...baseOptions,
         ...buildDrillVariationOptions(input),
         ...universalOptions,
         ...fallbackOptions,
@@ -4098,14 +4595,14 @@ function buildExerciseVariationOptions(
     case 'mobility':
     case 'power':
       return dedupeExerciseOptions([
-        exercise,
+        ...baseOptions,
         ...buildNonHomeStrengthVariationOptions(movementFamily),
         ...universalOptions,
         ...fallbackOptions,
       ])
     default:
       return dedupeExerciseOptions([
-        exercise,
+        ...baseOptions,
         ...universalOptions,
         ...fallbackOptions,
       ])
@@ -4145,6 +4642,10 @@ function getNextExerciseVariation(
       continue
     }
 
+    if (!isCompatibleExerciseVariation(currentExercise, candidate)) {
+      continue
+    }
+
     if (isExerciseUsedElsewhere(exercises, candidate, exerciseIndex)) {
       continue
     }
@@ -4167,6 +4668,7 @@ export function swapWorkoutSuggestionExercise(
   input: WorkoutGeneratorInput,
   suggestion: WorkoutSuggestion,
   exerciseIndex: number,
+  originalExercise?: WorkoutExerciseSuggestion,
 ): WorkoutSuggestion {
   const currentExercise = suggestion.exercises[exerciseIndex]
 
@@ -4181,7 +4683,12 @@ export function swapWorkoutSuggestionExercise(
       ? suggestion.exercises[exerciseIndex + 1]
       : undefined
   const variation = getNextExerciseVariation(
-    buildExerciseVariationOptions(input, suggestion, currentExercise),
+    buildExerciseVariationOptions(
+      input,
+      suggestion,
+      currentExercise,
+      originalExercise,
+    ),
     suggestion.exercises,
     exerciseIndex,
     currentExercise,
@@ -4235,17 +4742,15 @@ function buildWorkoutExercises(
     case 'bike':
       return buildBikeExercises(input.goal, suggestionId, duration, readiness)
     case 'gym':
-      return buildGymExercises(input.goal, suggestionId, duration, readiness)
+      return buildGymExercises(input, suggestionId, duration, readiness)
     case 'mixed':
-      return buildMixedExercises(input.goal, suggestionId, duration, readiness)
+      return buildMixedExercises(input, suggestionId, duration, readiness)
     case 'home':
       return buildHomeExercises(
-        input.goal,
+        input,
         suggestionId,
         duration,
         readiness,
-        input.homeEquipment,
-        input.customHomeEquipment,
       )
   }
 }
@@ -5306,16 +5811,27 @@ export function buildWorkoutGeneratorPlan(
     availableMinutes: normalizeDuration(input.availableMinutes),
   }
   const readiness = getReadiness(normalizedInput)
+  const libraryContext = createExerciseLibrarySelectionContext(
+    normalizedInput,
+    readiness,
+  )
+  const baseSuggestions = [
+    buildPrimarySuggestion(normalizedInput, readiness),
+    buildReducedLoadSuggestion(normalizedInput, readiness),
+    buildSupportSuggestion(normalizedInput),
+  ]
+  const adjustedSuggestions = baseSuggestions.map((suggestion) =>
+    applyExerciseLibraryToSuggestion(suggestion, libraryContext),
+  )
 
   return {
     readiness,
     headline: buildHeadline(normalizedInput.goal, readiness),
     detail: buildDetail(readiness),
-    adjustments: buildAdjustments(normalizedInput, readiness),
-    suggestions: [
-      buildPrimarySuggestion(normalizedInput, readiness),
-      buildReducedLoadSuggestion(normalizedInput, readiness),
-      buildSupportSuggestion(normalizedInput),
+    adjustments: [
+      ...buildAdjustments(normalizedInput, readiness),
+      ...adjustedSuggestions.flatMap(({ notes }) => notes),
     ],
+    suggestions: adjustedSuggestions.map(({ suggestion }) => suggestion),
   }
 }

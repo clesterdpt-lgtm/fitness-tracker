@@ -8,6 +8,8 @@ import {
 } from 'react'
 import './App.css'
 import {
+  getActiveInjuryBodyAreas,
+  getActiveInjuryConditionTags,
   buildInjurySeries,
   calculateInjuryAvailabilityScore,
   createDemoInjuryCases,
@@ -220,7 +222,8 @@ const APP_SECTIONS: AppSection[] = [
     id: 'dashboard',
     label: 'Dashboard',
     eyebrow: 'Live workspace',
-    summary: 'Daily snapshot across workload, recovery, injury, and nutrition.',
+    summary:
+      'Daily snapshot across workload, recovery, injury, nutrition, and planning.',
     badge: 'Live',
   },
   {
@@ -250,6 +253,20 @@ const APP_SECTIONS: AppSection[] = [
     eyebrow: 'Live workspace',
     summary: 'Daily targets, intake logging, and nutrition trend summaries.',
     badge: 'Live',
+  },
+  {
+    id: 'workout-generator',
+    label: 'Workout Generator',
+    eyebrow: 'Beta workspace',
+    summary: 'Library-backed session options scaled to readiness and injury context.',
+    badge: 'Beta',
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    eyebrow: 'Setup',
+    summary: 'Home equipment settings used by the workout generator.',
+    badge: 'Setup',
   },
 ]
 const WORKOUT_GOAL_OPTIONS: Array<{
@@ -2871,10 +2888,15 @@ function Sidebar({
               ? nutritionBand.detail
               : isWorkoutGenerator
                 ? 'The generator uses current load, recovery, and fueling signals to scale the session.'
+                : isSettings
+                  ? 'Home equipment selections shape the exercise library choices in home mode.'
                 : ratioBand.detail}
         </p>
         {isDashboard ? (
-          <p>Start broad, then dive into workload, recovery, injury, or nutrition.</p>
+          <p>
+            Start broad, then dive into workload, recovery, injury, nutrition,
+            or the workout generator.
+          </p>
         ) : null}
         {isRecovery ? (
           <p>{recoveryCheckIns}/7 morning check-ins logged this week.</p>
@@ -2997,8 +3019,8 @@ function DashboardWorkspace({
         <h1>See every training signal in one place.</h1>
         <p className="content-summary">
           Use this overview as your daily starting point, then jump straight
-          into workload, recovery, injury, or nutrition from the section that needs
-          attention.
+          into workload, recovery, injury, nutrition, or workout planning from
+          the section that needs attention.
         </p>
       </header>
 
@@ -3059,6 +3081,13 @@ function DashboardWorkspace({
                 onClick={() => onOpenSection('workload')}
               >
                 Open workload
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => onOpenSection('workout-generator')}
+              >
+                Open generator
               </button>
             </div>
           </div>
@@ -3201,6 +3230,35 @@ function DashboardWorkspace({
           ]}
           tone={nutritionBand.color}
           actionLabel="Open nutrition"
+          onOpen={onOpenSection}
+        />
+
+        <DashboardSnapshotCard
+          section="workout-generator"
+          kicker="Workout Generator"
+          title="Build today&apos;s session"
+          summary="Use the exercise library, readiness score, injury tracker, and home equipment setup to create workout options you can log."
+          metrics={[
+            {
+              label: 'Load context',
+              value: formatRatio(currentSnapshot?.ratio ?? null),
+              detail: ratioBand.label.toLowerCase(),
+            },
+            {
+              label: 'Recovery',
+              value: formatRecoveryScore(latestRecoveryEntry?.score ?? null),
+              detail: recoveryBand.label.toLowerCase(),
+            },
+            {
+              label: 'Injury',
+              value: formatInjuryAvailabilityScore(
+                latestInjuryCheckIn?.availabilityScore ?? null,
+              ),
+              detail: injuryBand.label.toLowerCase(),
+            },
+          ]}
+          tone={ratioBand.color}
+          actionLabel="Open generator"
           onOpen={onOpenSection}
         />
       </section>
@@ -5653,6 +5711,8 @@ function App() {
   )
   const injuryCheckInCount = getInjuryCheckInCount(injuryCheckIns)
   const activeInjuryCount = getActiveInjuryCount(injuryCases)
+  const activeInjuryBodyAreas = getActiveInjuryBodyAreas(injuryCases)
+  const activeInjuryConditionTags = getActiveInjuryConditionTags(injuryCases)
   const injuryBand = getInjuryBand(latestInjuryCheckIn?.availabilityScore ?? null)
   const selectedInjuryBand = getInjuryBand(
     selectedInjuryLatestCheckIn?.availabilityScore ??
@@ -5765,6 +5825,10 @@ function App() {
     weeklySessionCount,
     homeEquipment,
     customHomeEquipment,
+    activeInjuryBodyAreas,
+    injuryRestrictionTags: activeInjuryConditionTags,
+    injuryAvailabilityScore:
+      mostLimitingInjury?.latestCheckIn?.availabilityScore ?? injuryAverage,
   }
   const workoutGeneratorContextKey = JSON.stringify(workoutGeneratorInput)
   const baseWorkoutGeneratorPlan = buildWorkoutGeneratorPlan(workoutGeneratorInput)
@@ -5940,6 +6004,11 @@ function App() {
     exerciseIndex: number,
   ) => {
     setWorkoutGeneratorMessage('')
+    const originalSuggestion = baseWorkoutGeneratorPlan.suggestions.find(
+      (baseSuggestion) => baseSuggestion.id === suggestion.id,
+    )
+    const originalExercise = originalSuggestion?.exercises[exerciseIndex]
+
     startTransition(() => {
       setWorkoutSuggestionOverrideState((current) => ({
         contextKey: workoutGeneratorContextKey,
@@ -5951,6 +6020,7 @@ function App() {
             workoutGeneratorInput,
             suggestion,
             exerciseIndex,
+            originalExercise,
           ),
         },
       }))

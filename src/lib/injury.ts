@@ -87,6 +87,16 @@ export const INJURY_SIDE_OPTIONS: Array<{
   { value: 'na', label: 'Not side-specific' },
 ]
 
+const INJURY_BODY_AREA_CONDITION_TAGS: Record<InjuryBodyArea, string[]> = {
+  'neck-shoulder': ['shoulder_impingement', 'shoulder_labrum'],
+  'elbow-hand': ['grip_issue'],
+  'back-core': ['lumbar_disc'],
+  'hip-glute': ['hip_flexor_strain'],
+  knee: ['knee_pain'],
+  'ankle-foot': [],
+  other: [],
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
@@ -263,6 +273,28 @@ export function getInjuryCheckInCount(
 
 export function getActiveInjuryCount(cases: InjuryCase[]) {
   return cases.filter((injuryCase) => injuryCase.status === 'active').length
+}
+
+export function getActiveInjuryBodyAreas(cases: InjuryCase[]) {
+  return Array.from(
+    new Set(
+      cases
+        .filter((injuryCase) => injuryCase.status === 'active')
+        .map((injuryCase) => injuryCase.bodyArea),
+    ),
+  )
+}
+
+export function getActiveInjuryConditionTags(cases: InjuryCase[]) {
+  return Array.from(
+    new Set(
+      cases
+        .filter((injuryCase) => injuryCase.status === 'active')
+        .flatMap(
+          (injuryCase) => INJURY_BODY_AREA_CONDITION_TAGS[injuryCase.bodyArea],
+        ),
+    ),
+  )
 }
 
 export function getMostLimitingInjury(
