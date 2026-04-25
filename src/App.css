@@ -1965,20 +1965,21 @@ body.app-drawer-open {
 
 .muscle-research-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
   margin-top: 1rem;
 }
 
 @media (min-width: 640px) {
   .muscle-research-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
   }
 }
 
 @media (min-width: 1024px) {
   .muscle-research-grid {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
@@ -1986,9 +1987,11 @@ body.app-drawer-open {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.75rem 1rem;
+  padding: 0.6rem 0.75rem;
   cursor: pointer;
   transition: background 180ms ease;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .muscle-research-card:hover {
@@ -2000,7 +2003,7 @@ body.app-drawer-open {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .muscle-research-card summary::-webkit-details-marker {
@@ -2011,12 +2014,16 @@ body.app-drawer-open {
   font-family: var(--mono);
   font-size: 0.82rem;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .muscle-research-card summary span {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: var(--muted);
-  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .muscle-research-card summary span small {
@@ -2025,7 +2032,7 @@ body.app-drawer-open {
 
 .muscle-research-card >p {
   margin-top: 0.5rem;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.4;
 }
@@ -2037,10 +2044,11 @@ body.app-drawer-open {
 }
 
 .muscle-research-footer p {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.4;
   margin-bottom: 0.35rem;
+  overflow-wrap: break-word;
 }
 
 .muscle-research-footer p strong {
