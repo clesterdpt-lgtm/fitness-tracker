@@ -387,6 +387,12 @@ const WORKOUT_MODE_OPTIONS: Array<{
     summary: 'Mixed modal intervals and bodyweight loops.',
   },
 ]
+const WORKOUT_GOAL_MODE_MAP: Record<WorkoutGeneratorGoal, WorkoutGeneratorMode[]> = {
+  lifting: ['gym', 'home'],
+  agility: ['gym', 'home', 'field'],
+  conditioning: ['run', 'bike', 'row', 'swim', 'circuit'],
+  recovery: ['home', 'circuit'],
+}
 const HOME_EQUIPMENT_CATEGORY_OPTIONS: Array<{
   value: HomeEquipmentCategory
   label: string
@@ -5023,11 +5029,13 @@ function WorkoutGeneratorWorkspace({
                       onInputChange('mode', event.currentTarget.value)
                     }
                   >
-                    {WORKOUT_MODE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
+                    {WORKOUT_GOAL_MODE_MAP[formState.goal]
+                      .map((mode) => WORKOUT_MODE_OPTIONS.find((o) => o.value === mode)!)
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                   </select>
                   {formState.mode === 'home' ? (
                     <button
@@ -6513,10 +6521,22 @@ function App() {
     value: string,
   ) => {
     setWorkoutGeneratorMessage('')
-    setWorkoutGeneratorFormState((current) => ({
-      ...current,
-      [field]: value as WorkoutGeneratorFormState[typeof field],
-    }))
+    setWorkoutGeneratorFormState((current) => {
+      const update: WorkoutGeneratorFormState = {
+        ...current,
+        [field]: value as WorkoutGeneratorFormState[typeof field],
+      }
+
+      if (field === 'goal') {
+        const allowedModes = WORKOUT_GOAL_MODE_MAP[value as WorkoutGeneratorGoal]
+
+        if (!allowedModes.includes(current.mode)) {
+          update.mode = allowedModes[0]
+        }
+      }
+
+      return update
+    })
   }
 
   const handleRemixWorkoutSuggestion = (suggestion: WorkoutSuggestion) => {
