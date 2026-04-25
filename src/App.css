@@ -1965,9 +1965,15 @@ body.app-drawer-open {
 
 .muscle-research-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+@media (min-width: 480px) {
+  .muscle-research-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 640px) {
@@ -2001,9 +2007,17 @@ body.app-drawer-open {
 .muscle-research-card summary {
   list-style: none;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+@media (min-width: 640px) {
+  .muscle-research-card summary {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+  }
 }
 
 .muscle-research-card summary::-webkit-details-marker {
@@ -2014,16 +2028,18 @@ body.app-drawer-open {
   font-family: var(--mono);
   font-size: 0.82rem;
   font-weight: 600;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .muscle-research-card summary span {
   font-size: 0.75rem;
   color: var(--muted);
-  flex-shrink: 0;
+}
+
+@media (min-width: 640px) {
+  .muscle-research-card summary span {
+    flex-shrink: 0;
+    margin-left: auto;
+  }
 }
 
 .muscle-research-card summary span small {
