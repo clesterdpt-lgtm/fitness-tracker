@@ -1958,6 +1958,59 @@ body.app-drawer-open {
   color: var(--muted);
 }
 
+/* Goal toggle */
+.muscle-volume-goal-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.muscle-volume-goal-toggle label {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.muscle-volume-goal-toggle .toggle-group {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem;
+}
+
+.muscle-volume-goal-toggle .toggle-group button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.muscle-volume-goal-toggle .toggle-group button.active {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.muscle-volume-goal-toggle .toggle-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0;
+  max-width: 24rem;
+  line-height: 1.3;
+}
+
 /* Research panel */
 .muscle-research-panel {
   margin-top: 1.5rem;

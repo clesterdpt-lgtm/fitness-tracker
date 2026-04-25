@@ -94,12 +94,12 @@ import {
   getMuscleVolumeBand,
   getMuscleVolumeGoalStatus,
   getMuscleVolumeTarget,
+  getMuscleVolumeTargets,
   MUSCLE_GROUPS,
-  MUSCLE_VOLUME_TARGETS,
-  getWeeklyMuscleSummary,
   sortMuscleVolumeEntries,
   type MuscleGroup,
   type MuscleVolumeEntry,
+  type VolumeGoal,
   type WeeklyMuscleSummary,
 } from './lib/muscleVolume'
 
@@ -5667,6 +5667,8 @@ function MuscleVolumeWorkspace({
   onDeleteEntry,
   entries,
   errorMessage,
+  volumeGoal,
+  onVolumeGoalChange,
 }: {
   weeklySummary: WeeklyMuscleSummary
   formState: MuscleVolumeFormState
@@ -5676,11 +5678,15 @@ function MuscleVolumeWorkspace({
   onDeleteEntry: (id: string) => void
   entries: MuscleVolumeEntry[]
   errorMessage: string
+  volumeGoal: VolumeGoal
+  onVolumeGoalChange: (goal: VolumeGoal) => void
 }) {
   const maxSets = Math.max(
     1,
     ...Object.values(weeklySummary.byMuscle),
   )
+
+  const currentTargets = getMuscleVolumeTargets(volumeGoal)
 
   return (
     <div className="content-shell">
@@ -5728,16 +5734,37 @@ function MuscleVolumeWorkspace({
               <p className="section-kicker">Weekly breakdown</p>
               <h2>Sets per muscle group</h2>
             </div>
-            <p>
-              Bars show total sets in the last 7 days. Tick markers indicate minimum (dashed) and optimal (solid) targets based on meta-analysis research.
-            </p>
+            <div className="muscle-volume-goal-toggle">
+              <label>Goal:</label>
+              <div className="toggle-group">
+                <button
+                  type="button"
+                  className={volumeGoal === 'strength' ? 'active' : ''}
+                  onClick={() => onVolumeGoalChange('strength')}
+                >
+                  Strength
+                </button>
+                <button
+                  type="button"
+                  className={volumeGoal === 'hypertrophy' ? 'active' : ''}
+                  onClick={() => onVolumeGoalChange('hypertrophy')}
+                >
+                  Hypertrophy
+                </button>
+              </div>
+              <p className="toggle-hint">
+                {volumeGoal === 'strength'
+                  ? 'Lower volume, higher load. Based on Pelland 2025.'
+                  : 'Higher volume, moderate load. Based on Schoenfeld 2017, Baz-Valle 2022.'}
+              </p>
+            </div>
           </div>
 
           <div className="muscle-volume-bars">
             {MUSCLE_GROUPS.map((muscle) => {
               const sets = weeklySummary.byMuscle[muscle] ?? 0
               const band = getMuscleVolumeBand(sets)
-              const target = getMuscleVolumeTarget(muscle)
+              const target = getMuscleVolumeTarget(muscle, volumeGoal)
               const goal = target
                 ? getMuscleVolumeGoalStatus(sets, target)
                 : { label: 'None', color: '#8b6c4a', reachedMin: false, reachedOptimal: false }
@@ -5802,7 +5829,7 @@ function MuscleVolumeWorkspace({
           </div>
 
           <div className="muscle-research-grid">
-            {MUSCLE_VOLUME_TARGETS.map((t) => (
+            {currentTargets.map((t) => (
               <details key={t.muscle} className="muscle-research-card">
                 <summary>
                   <strong>{t.muscle}</strong>
@@ -5817,6 +5844,13 @@ function MuscleVolumeWorkspace({
           </div>
 
           <div className="muscle-research-footer">
+            <p>
+              <strong>Goal:</strong>{' '}
+              {volumeGoal === 'strength' ? 'Strength-focused' : 'Hypertrophy-focused'} targets.
+              {volumeGoal === 'strength'
+                ? ' Lower volume, higher load (>80% 1RM). Frequency matters more than volume.'
+                : ' Higher volume with moderate load. Based on Schoenfeld 2017, Baz-Valle 2022, Pelland 2025.'}
+            </p>
             <p>
               <strong>Fractional counting:</strong>{' '}
               Bench press = 1.0 chest + 0.5 triceps + 0.5 shoulders. Rows = 1.0 back + 0.5 biceps.
@@ -6012,6 +6046,14 @@ function App() {
   const [muscleVolumeEntries, setMuscleVolumeEntries] = useState<
     MuscleVolumeEntry[]
   >(() => loadStoredMuscleVolumeEntries())
+  const [muscleVolumeGoal, setMuscleVolumeGoal] = useState<VolumeGoal>(() => {
+    try {
+      const stored = localStorage.getItem('fitness-tracker.muscle-goal.v1')
+      return stored === 'strength' ? 'strength' : 'hypertrophy'
+    } catch {
+      return 'hypertrophy'
+    }
+  })
   const [muscleVolumeFormState, setMuscleVolumeFormState] =
     useState<MuscleVolumeFormState>(() => createEmptyMuscleVolumeFormState())
   const [activeSection, setActiveSection] = useState<AppSectionId>('dashboard')
@@ -6304,6 +6346,13 @@ function App() {
       JSON.stringify(muscleVolumeEntries),
     )
   }, [muscleVolumeEntries])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      'fitness-tracker.muscle-goal.v1',
+      muscleVolumeGoal,
+    )
+  }, [muscleVolumeGoal])
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -7329,6 +7378,8 @@ function App() {
             onDeleteEntry={handleDeleteMuscleVolumeEntry}
             entries={muscleVolumeEntries}
             errorMessage={muscleVolumeErrorMessage}
+            volumeGoal={muscleVolumeGoal}
+            onVolumeGoalChange={setMuscleVolumeGoal}
           />
         ) : activeSection === 'settings' ? (
           <SettingsWorkspace

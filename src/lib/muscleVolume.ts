@@ -58,6 +58,8 @@ export type MuscleVolumeEntry = {
      nearly every compound movement.
    =========================================================== */
 
+export type VolumeGoal = 'strength' | 'hypertrophy'
+
 export type MuscleVolumeTarget = {
   muscle: MuscleGroup
   minSets: number      // minimum effective volume (MEV)
@@ -66,7 +68,7 @@ export type MuscleVolumeTarget = {
   note: string
 }
 
-export const MUSCLE_VOLUME_TARGETS: MuscleVolumeTarget[] = [
+export const HYPERTROPHY_VOLUME_TARGETS: MuscleVolumeTarget[] = [
   {
     muscle: 'Chest',
     minSets: 6,
@@ -139,8 +141,90 @@ export const MUSCLE_VOLUME_TARGETS: MuscleVolumeTarget[] = [
   },
 ]
 
-export function getMuscleVolumeTarget(muscle: MuscleGroup): MuscleVolumeTarget | undefined {
-  return MUSCLE_VOLUME_TARGETS.find((t) => t.muscle === muscle)
+/* Strength targets are lower because:
+   - Strength gains exhibit more pronounced diminishing returns with volume
+   - Higher load (>80% 1RM) is the dominant driver, not total sets
+   - Frequency matters more than volume for strength
+   Source: Pelland et al. (2025) Sports Medicine */
+export const STRENGTH_VOLUME_TARGETS: MuscleVolumeTarget[] = [
+  {
+    muscle: 'Chest',
+    minSets: 3,
+    optimalSets: 8,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-8 sets/week. Flat/incline bench with >80% 1RM.',
+  },
+  {
+    muscle: 'Back',
+    minSets: 3,
+    optimalSets: 8,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-8 sets/week. Deadlifts/rows at >80% 1RM.',
+  },
+  {
+    muscle: 'Shoulders',
+    minSets: 3,
+    optimalSets: 7,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-7 sets/week. Overhead press with heavy load.',
+  },
+  {
+    muscle: 'Biceps',
+    minSets: 2,
+    optimalSets: 6,
+    maintenanceSets: 1,
+    note: 'Strength-focused: 2-6 sets/week. Often gets enough from rows/pullups.',
+  },
+  {
+    muscle: 'Triceps',
+    minSets: 3,
+    optimalSets: 8,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-8 sets/week. Bench/OHP covers 0.5 each set.',
+  },
+  {
+    muscle: 'Quadriceps',
+    minSets: 4,
+    optimalSets: 10,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 4-10 sets/week. Squats at >80% 1RM.',
+  },
+  {
+    muscle: 'Hamstrings',
+    minSets: 3,
+    optimalSets: 8,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-8 sets/week. RDL/deadlift with heavy load.',
+  },
+  {
+    muscle: 'Glutes',
+    minSets: 3,
+    optimalSets: 8,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-8 sets/week. Squats/deadlifts cover much of this.',
+  },
+  {
+    muscle: 'Calves',
+    minSets: 3,
+    optimalSets: 8,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-8 sets/week. Higher load, lower reps than hypertrophy.',
+  },
+  {
+    muscle: 'Core',
+    minSets: 3,
+    optimalSets: 6,
+    maintenanceSets: 2,
+    note: 'Strength-focused: 3-6 sets/week. Heavy compounds add core volume.',
+  },
+]
+
+export function getMuscleVolumeTargets(goal: VolumeGoal): MuscleVolumeTarget[] {
+  return goal === 'strength' ? STRENGTH_VOLUME_TARGETS : HYPERTROPHY_VOLUME_TARGETS
+}
+
+export function getMuscleVolumeTarget(muscle: MuscleGroup, goal: VolumeGoal): MuscleVolumeTarget | undefined {
+  return getMuscleVolumeTargets(goal).find((t) => t.muscle === muscle)
 }
 
 export type MuscleVolumeGoalStatus =
