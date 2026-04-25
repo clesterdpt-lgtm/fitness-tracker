@@ -1873,3 +1873,50 @@ body.app-drawer-open {
     font-size: 1rem;
   }
 }
+
+/* Muscle Volume */
+.muscle-volume-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.muscle-volume-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.muscle-volume-bar-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 10rem;
+  flex-shrink: 0;
+}
+
+.muscle-volume-bar-label strong {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.muscle-volume-bar-label span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.muscle-volume-bar-track {
+  flex: 1;
+  height: 0.75rem;
+  background: var(--track);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.muscle-volume-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 300ms ease;
+}

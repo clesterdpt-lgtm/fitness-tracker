@@ -88,6 +88,19 @@ import {
   type WorkloadSession,
 } from './lib/workload'
 
+import {
+  buildMuscleEntriesFromWorkout,
+  createMuscleVolumeEntry,
+  getMuscleVolumeBand,
+  getWeeklyMuscleSummary,
+  MUSCLE_GROUPS,
+  sortMuscleVolumeEntries,
+  type MuscleGroup,
+  type MuscleVolumeEntry,
+  type WeeklyMuscleSummary,
+} from './lib/muscleVolume'
+
+
 type SessionFormState = {
   title: string
   date: string
@@ -157,6 +170,26 @@ type CustomHomeEquipmentFormState = {
   category: HomeEquipmentCategory
 }
 
+
+
+type MuscleVolumeFormState = {
+  date: string
+  muscleGroup: MuscleGroup
+  sets: string
+  note: string
+}
+
+function createEmptyMuscleVolumeFormState(
+  date = formatDateInput(),
+): MuscleVolumeFormState {
+  return {
+    date,
+    muscleGroup: MUSCLE_GROUPS[0],
+    sets: '3',
+    note: '',
+  }
+}
+
 type WorkoutGeneratorFormState = {
   date: string
   goal: WorkoutGeneratorGoal
@@ -178,8 +211,9 @@ type AppSectionId =
   | 'workload'
   | 'recovery'
   | 'injury'
-  | 'workout-generator'
   | 'nutrition'
+  | 'workout-generator'
+  | 'muscle-volume'
   | 'settings'
 
 type AppSection = {
@@ -206,6 +240,7 @@ const NUTRITION_STORAGE_KEY = 'fitness-tracker.nutrition.v1'
 const NUTRITION_TARGETS_STORAGE_KEY = 'fitness-tracker.nutrition-targets.v1'
 const HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.home-equipment.v1'
 const CUSTOM_HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.custom-home-equipment.v1'
+const MUSCLE_VOLUME_STORAGE_KEY = 'fitness-tracker.muscle-volume.v1'
 const numberFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 })
@@ -260,6 +295,13 @@ const APP_SECTIONS: AppSection[] = [
     eyebrow: 'Beta workspace',
     summary: 'Library-backed session options scaled to readiness and injury context.',
     badge: 'Beta',
+  },
+  {
+    id: 'muscle-volume',
+    label: 'Muscle Volume',
+    eyebrow: 'Live workspace',
+    summary: 'Track weekly sets per muscle group from workouts and manual entry.',
+    badge: 'Live',
   },
   {
     id: 'settings',
@@ -1178,6 +1220,49 @@ function loadStoredCustomHomeEquipment() {
     return []
   }
 }
+function isStoredMuscleVolumeEntry(value: unknown): value is MuscleVolumeEntry {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const entry = value as Record<string, unknown>
+
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.date === 'string' &&
+    typeof entry.muscleGroup === 'string' &&
+    typeof entry.sets === 'number' &&
+    (entry.source === 'manual' || entry.source === 'workout-generator') &&
+    typeof entry.createdAt === 'string'
+  )
+}
+
+function loadStoredMuscleVolumeEntries() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(MUSCLE_VOLUME_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortMuscleVolumeEntries(
+      parsed.filter(isStoredMuscleVolumeEntry),
+    )
+  } catch {
+    return []
+  }
+}
+
 
 function getTotalHomeEquipmentCount(
   homeEquipment: HomeEquipmentId[],
@@ -5570,6 +5655,264 @@ function SettingsWorkspace({
   )
 }
 
+function MuscleVolumeWorkspace({
+  weeklySummary,
+  formState,
+  onInputChange,
+  onAddEntry,
+  onClearAll,
+  onDeleteEntry,
+  entries,
+  errorMessage,
+}: {
+  weeklySummary: WeeklyMuscleSummary
+  formState: MuscleVolumeFormState
+  onInputChange: (field: keyof MuscleVolumeFormState, value: string) => void
+  onAddEntry: () => void
+  onClearAll: () => void
+  onDeleteEntry: (id: string) => void
+  entries: MuscleVolumeEntry[]
+  errorMessage: string
+}) {
+  const maxSets = Math.max(
+    1,
+    ...Object.values(weeklySummary.byMuscle),
+  )
+
+  return (
+    <div className="content-shell">
+      <header className="content-header">
+        <p className="eyebrow">Muscle volume</p>
+        <h1>Track sets per muscle group each week.</h1>
+        <p className="content-summary">
+          Log sets manually or let the workout generator add them automatically.
+          This view shows your rolling 7-day total for each muscle group.
+        </p>
+      </header>
+
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <div>
+            <p className="section-kicker">Weekly summary</p>
+            <h2>Muscle group totals</h2>
+          </div>
+          <div className="hero-metadata">
+            <div>
+              <span>Total sets</span>
+              <strong>{weeklySummary.totalSets}</strong>
+              <small>last 7 days</small>
+            </div>
+          </div>
+        </div>
+
+        <aside className="hero-focus">
+          <p className="section-kicker">Coverage</p>
+          <p className="hero-focus-summary">
+            {weeklySummary.totalSets === 0
+              ? 'No volume logged yet this week.'
+              : `${weeklySummary.totalSets} sets across ${Object.values(weeklySummary.byMuscle).filter((s) => s > 0).length} muscle groups.`}
+          </p>
+          <p className="hero-focus-detail">
+            Use the workout generator to auto-log sets, or add them manually below.
+          </p>
+        </aside>
+      </section>
+
+      <main className="workspace">
+        <section className="section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Weekly breakdown</p>
+              <h2>Sets per muscle group</h2>
+            </div>
+            <p>
+              Bars show total sets in the last 7 days. Color indicates volume level.
+            </p>
+          </div>
+
+          <div className="muscle-volume-bars">
+            {MUSCLE_GROUPS.map((muscle) => {
+              const sets = weeklySummary.byMuscle[muscle] ?? 0
+              const band = getMuscleVolumeBand(sets)
+              const widthPercent = Math.max(4, (sets / maxSets) * 100)
+
+              return (
+                <div key={muscle} className="muscle-volume-bar-row">
+                  <div className="muscle-volume-bar-label">
+                    <strong>{muscle}</strong>
+                    <span>{sets > 0 ? `${sets.toFixed(1)} sets` : '—'}</span>
+                  </div>
+                  <div className="muscle-volume-bar-track">
+                    <div
+                      className="muscle-volume-bar-fill"
+                      style={{
+                        width: `${widthPercent}%`,
+                        backgroundColor: band.color,
+                        '--volume-accent': band.color,
+                      } as React.CSSProperties}
+                      aria-label={`${muscle}: ${sets.toFixed(1)} sets, ${band.label}`}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="entry-panel section-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Manual entry</p>
+              <h2>Add sets</h2>
+            </div>
+            <p>
+              Log extra volume that was not captured by the workout generator.
+            </p>
+          </div>
+
+          <form
+            className="entry-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              onAddEntry()
+            }}
+          >
+            <div className="entry-grid">
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={formState.date}
+                  onChange={(event) =>
+                    onInputChange('date', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Muscle group
+                <select
+                  value={formState.muscleGroup}
+                  onChange={(event) =>
+                    onInputChange(
+                      'muscleGroup',
+                      event.currentTarget.value as MuscleGroup,
+                    )
+                  }
+                >
+                  {MUSCLE_GROUPS.map((muscle) => (
+                    <option key={muscle} value={muscle}>
+                      {muscle}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Sets
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  value={formState.sets}
+                  onChange={(event) =>
+                    onInputChange('sets', event.currentTarget.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <label>
+              Note (optional)
+              <input
+                type="text"
+                value={formState.note}
+                placeholder="e.g., Accessory work, AMRAP finisher"
+                onChange={(event) =>
+                  onInputChange('note', event.currentTarget.value)
+                }
+              />
+            </label>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Sets</span>
+                <strong>{formState.sets}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Add entry
+                </button>
+              </div>
+            </div>
+
+            {errorMessage ? (
+              <p className="form-error">{errorMessage}</p>
+            ) : null}
+          </form>
+        </section>
+
+        <section className="section-panel">
+          <div className="recent-header">
+            <div>
+              <p className="section-kicker">Recent entries</p>
+              <h2>Volume log</h2>
+            </div>
+            <div className="recent-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={onClearAll}
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
+
+          {entries.length ? (
+            <ul className="recent-list">
+              {entries.slice(0, 50).map((entry) => (
+                <li key={entry.id} className="recent-item">
+                  <div className="recent-item-copy">
+                    <strong>
+                      {entry.sets.toFixed(1)} sets — {entry.muscleGroup}
+                    </strong>
+                    <span>
+                      {formatShortDate(entry.date)}
+                      {entry.source === 'workout-generator' ? ' · Auto' : ' · Manual'}
+                    </span>
+                    {entry.note ? <p>{entry.note}</p> : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Remove ${entry.sets.toFixed(1)} sets for ${entry.muscleGroup}?`,
+                        )
+                      ) {
+                        onDeleteEntry(entry.id)
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="generator-card-collapsed-copy">
+              No volume entries yet. Generate a workout or add sets manually to
+              start tracking.
+            </p>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}
+
 function App() {
   const [sessions, setSessions] = useState<WorkloadSession[]>(() =>
     loadStoredSessions(),
@@ -5595,6 +5938,11 @@ function App() {
   const [customHomeEquipment, setCustomHomeEquipment] = useState<
     CustomHomeEquipment[]
   >(() => loadStoredCustomHomeEquipment())
+  const [muscleVolumeEntries, setMuscleVolumeEntries] = useState<
+    MuscleVolumeEntry[]
+  >(() => loadStoredMuscleVolumeEntries())
+  const [muscleVolumeFormState, setMuscleVolumeFormState] =
+    useState<MuscleVolumeFormState>(() => createEmptyMuscleVolumeFormState())
   const [activeSection, setActiveSection] = useState<AppSectionId>('dashboard')
   const [formState, setFormState] = useState<SessionFormState>(() =>
     createEmptyFormState(),
@@ -5639,7 +5987,11 @@ function App() {
   const [nutritionTargetsErrorMessage, setNutritionTargetsErrorMessage] =
     useState('')
   const [homeEquipmentErrorMessage, setHomeEquipmentErrorMessage] = useState('')
+  const [muscleVolumeErrorMessage, setMuscleVolumeErrorMessage] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
+  const deferredMuscleVolumeEntries = useDeferredValue(muscleVolumeEntries)
+  const weeklyMuscleSummary = getWeeklyMuscleSummary(deferredMuscleVolumeEntries)
 
   const deferredSessions = useDeferredValue(sessions)
   const deferredRecoveryEntries = useDeferredValue(recoveryEntries)
@@ -5874,6 +6226,13 @@ function App() {
       JSON.stringify(nutritionEntries),
     )
   }, [nutritionEntries])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      MUSCLE_VOLUME_STORAGE_KEY,
+      JSON.stringify(muscleVolumeEntries),
+    )
+  }, [muscleVolumeEntries])
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -6422,6 +6781,12 @@ function App() {
       )
       .join(' | ')
 
+    const autoEntries = buildMuscleEntriesFromWorkout(
+      workoutGeneratorFormState.date,
+      suggestion.title,
+      suggestion.exercises.map((e) => ({ name: e.name, prescription: e.prescription })),
+    )
+
     const nextSession: WorkloadSession = {
       id: createEntryId('session'),
       title: suggestion.title,
@@ -6449,6 +6814,11 @@ function App() {
     }
 
     setSessions((current) => sortSessions([nextSession, ...current]))
+    if (autoEntries.length) {
+      setMuscleVolumeEntries((current) =>
+        sortMuscleVolumeEntries([...autoEntries, ...current]),
+      )
+    }
     setWorkoutGeneratorMessage(
       `${suggestion.title} was added to the training log for ${formatLongDate(
         workoutGeneratorFormState.date,
@@ -6655,6 +7025,45 @@ function App() {
     )
   }
 
+  const handleAddMuscleVolumeEntry = () => {
+    const parsedSets = Number(muscleVolumeFormState.sets)
+
+    if (!Number.isFinite(parsedSets) || parsedSets <= 0) {
+      setMuscleVolumeErrorMessage('Enter a valid positive number of sets.')
+      return
+    }
+
+    const entry = createMuscleVolumeEntry(
+      muscleVolumeFormState.date,
+      muscleVolumeFormState.muscleGroup,
+      parsedSets,
+      muscleVolumeFormState.note,
+    )
+
+    setMuscleVolumeEntries((current) => sortMuscleVolumeEntries([entry, ...current]))
+    setMuscleVolumeFormState(createEmptyMuscleVolumeFormState(muscleVolumeFormState.date))
+    setMuscleVolumeErrorMessage('')
+  }
+
+  const handleDeleteMuscleVolumeEntry = (entryId: string) => {
+    setMuscleVolumeEntries((current) =>
+      current.filter((entry) => entry.id !== entryId),
+    )
+  }
+
+  const handleClearMuscleVolume = () => {
+    if (!muscleVolumeEntries.length) {
+      return
+    }
+
+    if (!window.confirm('Clear every saved muscle volume entry from this browser?')) {
+      return
+    }
+
+    setMuscleVolumeEntries([])
+    setMuscleVolumeErrorMessage('')
+  }
+
   const handleSelectSection = (section: AppSectionId) => {
     setIsSidebarOpen(false)
     startTransition(() => {
@@ -6833,6 +7242,22 @@ function App() {
             nutritionSeries={nutritionSeries}
             recentNutritionEntries={recentNutritionEntries}
             onDeleteEntry={handleDeleteNutritionEntry}
+          />
+        ) : activeSection === 'muscle-volume' ? (
+          <MuscleVolumeWorkspace
+            weeklySummary={weeklyMuscleSummary}
+            formState={muscleVolumeFormState}
+            onInputChange={(field, value) =>
+              setMuscleVolumeFormState((current) => ({
+                ...current,
+                [field]: value,
+              }))
+            }
+            onAddEntry={handleAddMuscleVolumeEntry}
+            onClearAll={handleClearMuscleVolume}
+            onDeleteEntry={handleDeleteMuscleVolumeEntry}
+            entries={muscleVolumeEntries}
+            errorMessage={muscleVolumeErrorMessage}
           />
         ) : activeSection === 'settings' ? (
           <SettingsWorkspace

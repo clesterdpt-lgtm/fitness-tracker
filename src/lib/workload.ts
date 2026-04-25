@@ -106,7 +106,7 @@ export function formatShortDate(value: string) {
 }
 
 export function sortSessions(sessions: WorkloadSession[]) {
-  return [...sessions].toSorted(
+  return [...sessions].sort(
     (left, right) =>
       compareDateInputs(right.date, left.date) ||
       right.createdAt.localeCompare(left.createdAt),
