@@ -43,12 +43,12 @@ export type ExerciseLibraryAdjustment = {
 }
 
 export type ExerciseLibrarySelectionGoal =
-  | 'endurance'
-  | 'speed'
-  | 'strength'
+  | 'conditioning'
+  | 'agility'
+  | 'lifting'
   | 'recovery'
 
-export type ExerciseLibrarySelectionMode = 'gym' | 'mixed' | 'home'
+export type ExerciseLibrarySelectionMode = 'gym' | 'home' | 'circuit'
 
 export type ExerciseLibrarySelectionRequest = {
   movementPatterns: string[]
@@ -1076,15 +1076,15 @@ function getTargetFatigueRating(
   }
 
   if (context.readinessCap === 'moderate') {
-    return goal === 'strength' ? 3 : 2
+    return goal === 'lifting' ? 3 : 2
   }
 
   switch (goal) {
-    case 'strength':
+    case 'lifting':
       return 4
-    case 'speed':
+    case 'agility':
       return 3
-    case 'endurance':
+    case 'conditioning':
       return 3
   }
 }
@@ -1110,7 +1110,7 @@ function getGoalPatternScore(
   entry: ExerciseLibraryEntry,
   request: ExerciseLibrarySelectionRequest,
 ) {
-  if (request.goal === 'speed') {
+  if (request.goal === 'agility') {
     return ['jump', 'run', 'rotation'].includes(entry.movementPattern) ? -4 : 0
   }
 
@@ -1118,7 +1118,7 @@ function getGoalPatternScore(
     return entry.systemicFatigueRating <= 2 ? -3 : 0
   }
 
-  if (request.goal === 'strength') {
+  if (request.goal === 'lifting') {
     return ['squat', 'hinge', 'push', 'pull'].includes(entry.movementPattern)
       ? -2
       : 0

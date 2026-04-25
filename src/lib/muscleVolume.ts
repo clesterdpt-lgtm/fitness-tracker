@@ -58,7 +58,7 @@ export type MuscleVolumeEntry = {
      nearly every compound movement.
    =========================================================== */
 
-export type VolumeGoal = 'strength' | 'hypertrophy'
+export type VolumeGoal = 'lifting' | 'hypertrophy'
 
 export type MuscleVolumeTarget = {
   muscle: MuscleGroup
@@ -146,7 +146,7 @@ export const HYPERTROPHY_VOLUME_TARGETS: MuscleVolumeTarget[] = [
    - Higher load (>80% 1RM) is the dominant driver, not total sets
    - Frequency matters more than volume for strength
    Source: Pelland et al. (2025) Sports Medicine */
-export const STRENGTH_VOLUME_TARGETS: MuscleVolumeTarget[] = [
+export const LIFTING_VOLUME_TARGETS: MuscleVolumeTarget[] = [
   {
     muscle: 'Chest',
     minSets: 3,
@@ -220,7 +220,7 @@ export const STRENGTH_VOLUME_TARGETS: MuscleVolumeTarget[] = [
 ]
 
 export function getMuscleVolumeTargets(goal: VolumeGoal): MuscleVolumeTarget[] {
-  return goal === 'strength' ? STRENGTH_VOLUME_TARGETS : HYPERTROPHY_VOLUME_TARGETS
+  return goal === 'lifting' ? LIFTING_VOLUME_TARGETS : HYPERTROPHY_VOLUME_TARGETS
 }
 
 export function getMuscleVolumeTarget(muscle: MuscleGroup, goal: VolumeGoal): MuscleVolumeTarget | undefined {

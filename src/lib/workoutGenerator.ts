@@ -9,12 +9,12 @@ import type { InjuryBodyArea } from './injury'
 import { createSessionLoad } from './workload'
 
 export type WorkoutGeneratorGoal =
-  | 'endurance'
-  | 'speed'
-  | 'strength'
+  | 'conditioning'
+  | 'agility'
+  | 'lifting'
   | 'recovery'
 
-export type WorkoutGeneratorMode = 'run' | 'bike' | 'gym' | 'mixed' | 'home'
+export type WorkoutGeneratorMode = 'gym' | 'home' | 'field' | 'run' | 'bike' | 'row' | 'swim' | 'circuit'
 
 export type HomeEquipmentCategory =
   | 'cardio'
@@ -235,11 +235,11 @@ function buildFuelingNote(
     return 'Fuel before you train today, then follow with protein, carbs, and fluids afterward.'
   }
 
-  if ((goal === 'endurance' || goal === 'speed') && duration >= 60) {
+  if ((goal === 'conditioning' || goal === 'agility') && duration >= 60) {
     return 'Bring fluids, and add a carbohydrate source if the main work pushes past the one-hour mark.'
   }
 
-  if (goal === 'strength') {
+  if (goal === 'lifting') {
     return 'Pair the session with protein and fluids within an hour after lifting.'
   }
 
@@ -290,7 +290,7 @@ type ExerciseLibraryWorkoutSlot = {
 function getExerciseLibrarySelectionMode(
   mode: WorkoutGeneratorMode,
 ): ExerciseLibrarySelectionMode | null {
-  if (mode === 'gym' || mode === 'mixed' || mode === 'home') {
+  if (mode === 'gym' || mode === 'circuit' || mode === 'home') {
     return mode
   }
 
@@ -533,7 +533,7 @@ function applyExerciseLibraryToSuggestion(
   }
 }
 
-type ExerciseIntent = 'warmup' | 'quality' | 'steady' | 'strength' | 'recovery'
+type ExerciseIntent = 'warmup' | 'quality' | 'steady' | 'lifting' | 'recovery'
 
 function getExerciseSearchText(exercise: WorkoutExerciseSuggestion) {
   return `${exercise.name} ${exercise.prescription} ${exercise.detail}`.toLowerCase()
@@ -689,7 +689,7 @@ function getExerciseIntent(exercise: WorkoutExerciseSuggestion): ExerciseIntent 
     return 'steady'
   }
 
-  return 'strength'
+  return 'lifting'
 }
 
 function isDistinctRepeat(
@@ -1198,7 +1198,7 @@ function buildRunExercises(
   }
 
   if (suggestionId === 'support') {
-    if (goal === 'strength') {
+    if (goal === 'lifting') {
       return [
         createExercise(
           'Easy jog or incline walk',
@@ -1248,7 +1248,7 @@ function buildRunExercises(
   }
 
   switch (goal) {
-    case 'endurance':
+    case 'conditioning':
       return [
         createExercise(
           'A-skip march',
@@ -1273,7 +1273,7 @@ function buildRunExercises(
           'Bring the lower legs back down before finishing.',
         ),
       ]
-    case 'speed':
+    case 'agility':
       return [
         createExercise(
           'Drill series',
@@ -1300,7 +1300,7 @@ function buildRunExercises(
           'A small durability piece after the faster running.',
         ),
       ]
-    case 'strength':
+    case 'lifting':
       return [
         createExercise(
           'Hill march + skips',
@@ -1387,7 +1387,7 @@ function buildBikeExercises(
   }
 
   if (suggestionId === 'support') {
-    if (goal === 'strength') {
+    if (goal === 'lifting') {
       return [
         createExercise(
           'Easy endurance ride',
@@ -1437,7 +1437,7 @@ function buildBikeExercises(
   }
 
   switch (goal) {
-    case 'endurance':
+    case 'conditioning':
       return [
         createExercise(
           'Progressive spin-up',
@@ -1462,7 +1462,7 @@ function buildBikeExercises(
           'Open the front of the hips before finishing.',
         ),
       ]
-    case 'speed':
+    case 'agility':
       return [
         createExercise(
           'Cadence spin-ups',
@@ -1489,7 +1489,7 @@ function buildBikeExercises(
           'Restore trunk control after the harder pedaling.',
         ),
       ]
-    case 'strength':
+    case 'lifting':
       return [
         createExercise(
           'Low-cadence primer',
@@ -1580,7 +1580,7 @@ function buildGymExercises(
   }
 
   if (suggestionId === 'support') {
-    if (goal === 'strength') {
+    if (goal === 'lifting') {
       return [
         createExercise(
           'Bike or row',
@@ -1634,7 +1634,7 @@ function buildGymExercises(
   }
 
   switch (goal) {
-    case 'endurance':
+    case 'conditioning':
       return [
         createExercise(
           'Bike erg warm-up',
@@ -1667,7 +1667,7 @@ function buildGymExercises(
             'Finish each round with full-body tension and breathing control.',
         }),
       ]
-    case 'speed':
+    case 'agility':
       return [
         pickLibraryExercise({
           movementPatterns: ['push', 'rotation'],
@@ -1694,7 +1694,7 @@ function buildGymExercises(
           detail: 'Keep it snappy and stop when speed fades.',
         }),
       ]
-    case 'strength':
+    case 'lifting':
       return [
         pickLibraryExercise({
           movementPatterns: ['hinge', 'squat'],
@@ -1756,7 +1756,7 @@ function buildGymExercises(
   }
 }
 
-function buildMixedExercises(
+function buildCircuitExercises(
   input: WorkoutGeneratorInput,
   suggestionId: WorkoutSuggestion['id'],
   duration: number,
@@ -1792,7 +1792,7 @@ function buildMixedExercises(
   }
 
   if (suggestionId === 'support') {
-    if (goal === 'strength') {
+    if (goal === 'lifting') {
       return [
         createExercise(
           'Easy cardio block',
@@ -1846,7 +1846,7 @@ function buildMixedExercises(
   }
 
   switch (goal) {
-    case 'endurance':
+    case 'conditioning':
       return [
         createExercise(
           'Jump rope or easy bike',
@@ -1877,7 +1877,7 @@ function buildMixedExercises(
           detail: 'Finish with trunk and shoulder integration.',
         }),
       ]
-    case 'speed':
+    case 'agility':
       return [
         createExercise(
           'Fast-feet rope skip',
@@ -1906,7 +1906,7 @@ function buildMixedExercises(
           detail: 'Drive power down and recover fully.',
         }),
       ]
-    case 'strength':
+    case 'lifting':
       return [
         pickLibraryExercise({
           movementPatterns: ['lunge', 'squat'],
@@ -2278,7 +2278,7 @@ function createHomeIntervalExercise(
 ) {
   if (hasHomeEquipment(homeEquipment, 'treadmill')) {
     return createExercise(
-      goal === 'strength' ? 'Incline treadmill intervals' : 'Treadmill intervals',
+      goal === 'lifting' ? 'Incline treadmill intervals' : 'Treadmill intervals',
       readiness?.cap === 'high'
         ? '6 x 1 min strong / 90 sec easy'
         : readiness?.cap === 'moderate'
@@ -2353,7 +2353,7 @@ function createHomeIntervalExercise(
   }
 
   return createExercise(
-    goal === 'speed' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
+    goal === 'agility' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
     readiness?.cap === 'high'
       ? '8 x 30 sec strong / 30 sec easy'
       : readiness?.cap === 'moderate'
@@ -2893,7 +2893,7 @@ function buildHomeExercises(
   }
 
   if (suggestionId === 'support') {
-    if (goal === 'strength') {
+    if (goal === 'lifting') {
       return [
         createHomeWarmupExercise(homeEquipment, customHomeEquipment),
         createHomeAerobicExercise(
@@ -2936,7 +2936,7 @@ function buildHomeExercises(
   }
 
   switch (goal) {
-    case 'endurance':
+    case 'conditioning':
       return [
         createHomeWarmupExercise(homeEquipment, customHomeEquipment),
         createHomeAerobicExercise(
@@ -2964,7 +2964,7 @@ function buildHomeExercises(
           detail: 'Finish with trunk control that does not spike fatigue.',
         }),
       ]
-    case 'speed':
+    case 'agility':
       return [
         createHomeWarmupExercise(homeEquipment, customHomeEquipment),
         pickLibraryExercise({
@@ -2993,7 +2993,7 @@ function buildHomeExercises(
           detail: 'Keep the trunk organized after the faster work.',
         }),
       ]
-    case 'strength':
+    case 'lifting':
       return [
         createHomeWarmupExercise(homeEquipment, customHomeEquipment),
         pickLibraryExercise({
@@ -3412,13 +3412,13 @@ function buildHomeIntervalVariationOptions(
   if (hasHomeEquipment(homeEquipment, 'treadmill')) {
     options.push(
       createExercise(
-        goal === 'strength' ? 'Incline treadmill intervals' : 'Treadmill intervals',
+        goal === 'lifting' ? 'Incline treadmill intervals' : 'Treadmill intervals',
         highReady
           ? `6 x 2 min strong / 90 sec easy`
           : moderateReady
             ? `5 x 2 min controlled hard / 2 min easy`
             : `${Math.max(10, duration)} min easy treadmill work with 6 x 20 sec pickups`,
-        goal === 'strength'
+        goal === 'lifting'
           ? 'Use the incline for muscular demand but stay well below a sprint.'
           : 'Control the faster work so every rep still looks smooth.',
       ),
@@ -3510,7 +3510,7 @@ function buildHomeIntervalVariationOptions(
   if (hasHomeEquipment(homeEquipment, 'jump-rope')) {
     options.push(
       createExercise(
-        goal === 'speed' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
+        goal === 'agility' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
         highReady
           ? '8 x 40 sec crisp / 20 sec reset'
           : moderateReady
@@ -3557,7 +3557,7 @@ function buildHomeIntervalVariationOptions(
 
   options.push(
     createExercise(
-      goal === 'speed' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
+      goal === 'agility' ? 'Fast-feet conditioning rounds' : 'Home interval rounds',
       `6 x ${Math.max(1, Math.round(duration / 10))} min work / 30 sec easy`,
       'Use brisk in-place movement, shadow footwork, or low-impact bursts to stay sharp.',
     ),
@@ -4743,8 +4743,8 @@ function buildWorkoutExercises(
       return buildBikeExercises(input.goal, suggestionId, duration, readiness)
     case 'gym':
       return buildGymExercises(input, suggestionId, duration, readiness)
-    case 'mixed':
-      return buildMixedExercises(input, suggestionId, duration, readiness)
+    case 'circuit':
+      return buildCircuitExercises(input, suggestionId, duration, readiness)
     case 'home':
       return buildHomeExercises(
         input,
@@ -4752,6 +4752,11 @@ function buildWorkoutExercises(
         duration,
         readiness,
       )
+    case 'field':
+    case 'swim':
+      return []
+    case 'row':
+      return buildBikeExercises(input.goal, suggestionId, duration, readiness)
   }
 }
 
@@ -4902,24 +4907,24 @@ function buildEndurancePrimary(
         ],
       }, readiness)
 
-    case 'mixed':
+    case 'circuit':
       return createSuggestion(input, {
         id: 'recommended',
         label: 'Recommended',
         title:
           readiness.cap === 'low'
-            ? 'Easy mixed aerobic reset'
+            ? 'Easy circuit aerobic reset'
             : 'Mixed aerobic builder',
         summary:
           readiness.cap === 'high'
             ? 'Blend cardio and bodyweight work to build the engine without needing a maximal session.'
             : readiness.cap === 'moderate'
-              ? 'A balanced mixed session that keeps the work steady and efficient.'
-              : 'A light mixed session that restores rhythm more than it chases volume.',
+              ? 'A balanced circuit session that keeps the work steady and efficient.'
+              : 'A light circuit session that restores rhythm more than it chases volume.',
         duration,
         rpe,
         rationale:
-          'A mixed session gives you endurance value while spreading stress across different movement patterns.',
+          'A circuit session gives you endurance value while spreading stress across different movement patterns.',
         fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
         caution: buildCautionNote(readiness),
         blocks: [
@@ -4983,6 +4988,8 @@ function buildEndurancePrimary(
           },
         ],
       }, readiness)
+    default:
+      return buildReducedLoadSuggestion(input, readiness)
   }
 }
 
@@ -5126,7 +5133,7 @@ function buildSpeedPrimary(
         ],
       }, readiness)
 
-    case 'mixed':
+    case 'circuit':
       return createSuggestion(input, {
         id: 'recommended',
         label: 'Recommended',
@@ -5134,14 +5141,14 @@ function buildSpeedPrimary(
           readiness.cap === 'low'
             ? 'Speed-support primer'
             : readiness.cap === 'moderate'
-              ? 'Controlled mixed quality session'
+              ? 'Controlled circuit quality session'
               : 'Mixed quality session',
         summary:
           readiness.cap === 'low'
             ? 'Keep the nervous system awake without making the day costly.'
             : readiness.cap === 'moderate'
               ? 'Blend cardio and fast bodyweight work in controlled pieces.'
-              : 'A quality mixed session that keeps variety high and fatigue predictable.',
+              : 'A quality circuit session that keeps variety high and fatigue predictable.',
         duration,
         rpe,
         rationale:
@@ -5159,7 +5166,7 @@ function buildSpeedPrimary(
               readiness.cap === 'high'
                 ? `${main} min alternating quick cardio efforts with short strength or plyometric blocks.`
                 : readiness.cap === 'moderate'
-                  ? `${main} min tempo-style cardio mixed with crisp bodyweight power sets.`
+                  ? `${main} min tempo-style cardio with crisp bodyweight power sets.`
                   : `${main} min easy cardio and drills with only brief faster touches.`,
           },
           {
@@ -5211,6 +5218,8 @@ function buildSpeedPrimary(
           },
         ],
       }, readiness)
+    default:
+      return buildReducedLoadSuggestion(input, readiness)
   }
 }
 
@@ -5348,7 +5357,7 @@ function buildStrengthPrimary(
         ],
       }, readiness)
 
-    case 'mixed':
+    case 'circuit':
       return createSuggestion(input, {
         id: 'recommended',
         label: 'Recommended',
@@ -5356,7 +5365,7 @@ function buildStrengthPrimary(
           readiness.cap === 'low'
             ? 'Bodyweight strength reset'
             : readiness.cap === 'moderate'
-              ? 'Controlled mixed strength circuit'
+              ? 'Controlled circuit strength circuit'
               : 'Mixed strength session',
         summary:
           readiness.cap === 'low'
@@ -5365,7 +5374,7 @@ function buildStrengthPrimary(
         duration,
         rpe,
         rationale:
-          'A mixed session makes it easier to keep strength work accessible and scalable.',
+          'A circuit session makes it easier to keep strength work accessible and scalable.',
         fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
         caution: buildCautionNote(readiness),
         blocks: [
@@ -5377,7 +5386,7 @@ function buildStrengthPrimary(
             label: 'Main set',
             detail:
               readiness.cap === 'high'
-                ? `${main} min mixed circuit: split squat, push, pull, hinge, trunk, and carry patterns for steady strong rounds.`
+                ? `${main} min circuit: split squat, push, pull, hinge, trunk, and carry patterns for steady strong rounds.`
                 : readiness.cap === 'moderate'
                   ? `${main} min controlled resistance circuit with form-first pacing.`
                   : `${main} min bodyweight and light-resistance work with extra mobility between rounds.`,
@@ -5431,6 +5440,8 @@ function buildStrengthPrimary(
           },
         ],
       }, readiness)
+    default:
+      return buildReducedLoadSuggestion(input, readiness)
   }
 }
 
@@ -5527,7 +5538,7 @@ function buildRecoveryPrimary(
         ],
       }, readiness)
 
-    case 'mixed':
+    case 'circuit':
       return createSuggestion(input, {
         id: 'recommended',
         label: 'Recommended',
@@ -5536,7 +5547,7 @@ function buildRecoveryPrimary(
         duration,
         rpe,
         rationale:
-          'A mixed recovery session is often easier to stick with because it never feels repetitive.',
+          'A circuit recovery session is often easier to stick with because it never feels repetitive.',
         fueling: buildFuelingNote(input.goal, input.nutritionScore, duration),
         caution: 'Nothing in this session should feel like a workout benchmark.',
         blocks: [
@@ -5582,6 +5593,8 @@ function buildRecoveryPrimary(
           },
         ],
       }, readiness)
+    default:
+      return buildReducedLoadSuggestion(input, readiness)
   }
 }
 
@@ -5604,7 +5617,7 @@ function buildReducedLoadSuggestion(
             ? 'Home reset swap'
           : input.mode === 'run'
             ? 'Easy aerobic swap'
-            : 'Low-stress mixed swap',
+            : 'Low-stress circuit swap',
     summary:
       'Use this if the warm-up feels worse than expected or if the day needs to stay lighter than planned.',
     duration,
@@ -5635,10 +5648,10 @@ function buildReducedLoadSuggestion(
   }, readiness)
 }
 
-function buildSupportSuggestion(input: WorkoutGeneratorInput) {
+function buildSupportSuggestion(input: WorkoutGeneratorInput): WorkoutSuggestion {
   const duration = normalizeDuration(input.availableMinutes * 0.6)
 
-  if (input.goal === 'strength') {
+  if (input.goal === 'lifting') {
     return createSuggestion(input, {
       id: 'support',
       label: 'Support session',
@@ -5651,7 +5664,7 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
       rpe: 4,
       rationale:
         'Strength work benefits from easy aerobic support when the main lift is not the best option today.',
-      fueling: buildFuelingNote('endurance', input.nutritionScore, duration),
+      fueling: buildFuelingNote('conditioning', input.nutritionScore, duration),
       caution: 'Keep the effort easy enough that it helps recovery instead of competing with it.',
       blocks: [
         {
@@ -5688,7 +5701,7 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
     rpe: 5,
     rationale:
       'A support lift gives you a productive alternative when you want useful work without another big cardio day.',
-    fueling: buildFuelingNote('strength', input.nutritionScore, duration),
+    fueling: buildFuelingNote('lifting', input.nutritionScore, duration),
     caution: 'Keep form clean and stop each set with reps still in reserve.',
     blocks: [
       {
@@ -5713,16 +5726,18 @@ function buildSupportSuggestion(input: WorkoutGeneratorInput) {
 function buildPrimarySuggestion(
   input: WorkoutGeneratorInput,
   readiness: WorkoutReadiness,
-) {
+): WorkoutSuggestion {
   switch (input.goal) {
-    case 'endurance':
+    case 'conditioning':
       return buildEndurancePrimary(input, readiness)
-    case 'speed':
+    case 'agility':
       return buildSpeedPrimary(input, readiness)
-    case 'strength':
+    case 'lifting':
       return buildStrengthPrimary(input, readiness)
     case 'recovery':
       return buildRecoveryPrimary(input, readiness)
+    default:
+      return buildEndurancePrimary(input, readiness)
   }
 }
 

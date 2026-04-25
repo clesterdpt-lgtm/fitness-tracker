@@ -321,19 +321,19 @@ const WORKOUT_GOAL_OPTIONS: Array<{
   summary: string
 }> = [
   {
-    value: 'endurance',
-    label: 'Endurance',
-    summary: 'Build aerobic work without overshooting the day.',
+    value: 'lifting',
+    label: 'Lifting',
+    summary: 'Bias the session toward force production and support work.',
   },
   {
-    value: 'speed',
-    label: 'Speed',
+    value: 'agility',
+    label: 'Agility',
     summary: 'Use structured quality work when readiness supports it.',
   },
   {
-    value: 'strength',
-    label: 'Strength',
-    summary: 'Bias the session toward force production and support work.',
+    value: 'conditioning',
+    label: 'Conditioning',
+    summary: 'Build aerobic work without overshooting the day.',
   },
   {
     value: 'recovery',
@@ -347,6 +347,21 @@ const WORKOUT_MODE_OPTIONS: Array<{
   summary: string
 }> = [
   {
+    value: 'gym',
+    label: 'Gym',
+    summary: 'Train indoors with weights, machines, or barbells.',
+  },
+  {
+    value: 'home',
+    label: 'Home',
+    summary: 'Build a home session from your available equipment.',
+  },
+  {
+    value: 'field',
+    label: 'Field',
+    summary: 'Outdoor ground-based drills and directional work.',
+  },
+  {
     value: 'run',
     label: 'Run',
     summary: 'Build the day around running.',
@@ -357,19 +372,19 @@ const WORKOUT_MODE_OPTIONS: Array<{
     summary: 'Use the bike as the main training tool.',
   },
   {
-    value: 'gym',
-    label: 'Gym',
-    summary: 'Train indoors with weights, circuits, or machines.',
+    value: 'row',
+    label: 'Row',
+    summary: 'Rowing-based aerobic and interval work.',
   },
   {
-    value: 'mixed',
-    label: 'Mixed',
-    summary: 'Blend cardio, bodyweight, and strength support.',
+    value: 'swim',
+    label: 'Swim',
+    summary: 'Pool-based aerobic or technique work.',
   },
   {
-    value: 'home',
-    label: 'Home',
-    summary: 'Build a home session from your available equipment.',
+    value: 'circuit',
+    label: 'Circuit',
+    summary: 'Mixed modal intervals and bodyweight loops.',
   },
 ]
 const HOME_EQUIPMENT_CATEGORY_OPTIONS: Array<{
@@ -624,7 +639,7 @@ function createEmptyWorkoutGeneratorFormState(
 ): WorkoutGeneratorFormState {
   return {
     date,
-    goal: 'endurance',
+    goal: 'conditioning',
     mode: 'run',
     availableMinutes: '45',
   }
@@ -5783,8 +5798,8 @@ function MuscleVolumeWorkspace({
               <div className="toggle-group">
                 <button
                   type="button"
-                  className={volumeGoal === 'strength' ? 'active' : ''}
-                  onClick={() => onVolumeGoalChange('strength')}
+                  className={volumeGoal === 'lifting' ? 'active' : ''}
+                  onClick={() => onVolumeGoalChange('lifting')}
                 >
                   Strength
                 </button>
@@ -5797,7 +5812,7 @@ function MuscleVolumeWorkspace({
                 </button>
               </div>
               <p className="toggle-hint">
-                {volumeGoal === 'strength'
+                {volumeGoal === 'lifting'
                   ? 'Lower volume, higher load. Based on Pelland 2025.'
                   : 'Higher volume, moderate load. Based on Schoenfeld 2017, Baz-Valle 2022.'}
               </p>
@@ -5890,8 +5905,8 @@ function MuscleVolumeWorkspace({
           <div className="muscle-research-footer">
             <p>
               <strong>Goal:</strong>{' '}
-              {volumeGoal === 'strength' ? 'Strength-focused' : 'Hypertrophy-focused'} targets.
-              {volumeGoal === 'strength'
+              {volumeGoal === 'lifting' ? 'Strength-focused' : 'Hypertrophy-focused'} targets.
+              {volumeGoal === 'lifting'
                 ? ' Lower volume, higher load (>80% 1RM). Frequency matters more than volume.'
                 : ' Higher volume with moderate load. Based on Schoenfeld 2017, Baz-Valle 2022, Pelland 2025.'}
             </p>
@@ -6093,7 +6108,7 @@ function App() {
   const [muscleVolumeGoal, setMuscleVolumeGoal] = useState<VolumeGoal>(() => {
     try {
       const stored = localStorage.getItem('fitness-tracker.muscle-goal.v1')
-      return stored === 'strength' ? 'strength' : 'hypertrophy'
+      return stored === 'lifting' ? 'lifting' : 'hypertrophy'
     } catch {
       return 'hypertrophy'
     }
