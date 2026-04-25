@@ -3079,6 +3079,7 @@ function DashboardWorkspace({
   nutritionAverage,
   nutritionBand,
   nutritionLogCount,
+  weeklyMuscleSummary,
   onOpenSection,
 }: {
   currentSnapshot: DailyLoadPoint | undefined
@@ -3099,8 +3100,23 @@ function DashboardWorkspace({
   nutritionAverage: number | null
   nutritionBand: NutritionBand
   nutritionLogCount: number
+  weeklyMuscleSummary: WeeklyMuscleSummary
   onOpenSection: (section: AppSectionId) => void
 }) {
+  const musclesCovered = Object.values(weeklyMuscleSummary.byMuscle).filter((s) => s > 0).length
+  let topMuscle = '--'
+  let topMuscleSets = 0
+  for (const [muscle, sets] of Object.entries(weeklyMuscleSummary.byMuscle)) {
+    if (sets > topMuscleSets) {
+      topMuscleSets = sets
+      topMuscle = muscle
+    }
+  }
+  const muscleVolumeTone = musclesCovered === 0 ? '#8b6c4a' : musclesCovered <= 3 ? '#b56b21' : musclesCovered <= 7 ? '#4f7a86' : '#2f7d69'
+  const muscleVolumeSummary = musclesCovered === 0
+    ? 'No volume logged yet this week.'
+    : `${weeklyMuscleSummary.totalSets} sets across ${musclesCovered} muscle groups.`
+
   return (
     <div className="content-shell">
       <header className="content-header">
@@ -3348,6 +3364,33 @@ function DashboardWorkspace({
           ]}
           tone={ratioBand.color}
           actionLabel="Open generator"
+          onOpen={onOpenSection}
+        />
+
+        <DashboardSnapshotCard
+          section="muscle-volume"
+          kicker="Muscle Volume"
+          title="Sets per muscle group"
+          summary={muscleVolumeSummary}
+          metrics={[
+            {
+              label: 'Total sets',
+              value: `${weeklyMuscleSummary.totalSets}`,
+              detail: 'last 7 days',
+            },
+            {
+              label: 'Muscles covered',
+              value: `${musclesCovered}/10`,
+              detail: 'groups with logged volume',
+            },
+            {
+              label: 'Top group',
+              value: topMuscle,
+              detail: `${topMuscleSets} sets`,
+            },
+          ]}
+          tone={muscleVolumeTone}
+          actionLabel="Open muscle volume"
           onOpen={onOpenSection}
         />
       </section>
@@ -7266,6 +7309,7 @@ function App() {
             nutritionAverage={nutritionAverage}
             nutritionBand={nutritionBand}
             nutritionLogCount={nutritionLogCount}
+            weeklyMuscleSummary={weeklyMuscleSummary}
             onOpenSection={handleSelectSection}
           />
         ) : activeSection === 'workload' ? (
