@@ -92,8 +92,11 @@ import {
   buildMuscleEntriesFromWorkout,
   createMuscleVolumeEntry,
   getMuscleVolumeBand,
-  getWeeklyMuscleSummary,
+  getMuscleVolumeGoalStatus,
+  getMuscleVolumeTarget,
   MUSCLE_GROUPS,
+  MUSCLE_VOLUME_TARGETS,
+  getWeeklyMuscleSummary,
   sortMuscleVolumeEntries,
   type MuscleGroup,
   type MuscleVolumeEntry,
@@ -5726,7 +5729,7 @@ function MuscleVolumeWorkspace({
               <h2>Sets per muscle group</h2>
             </div>
             <p>
-              Bars show total sets in the last 7 days. Color indicates volume level.
+              Bars show total sets in the last 7 days. Tick markers indicate minimum (dashed) and optimal (solid) targets based on meta-analysis research.
             </p>
           </div>
 
@@ -5734,15 +5737,43 @@ function MuscleVolumeWorkspace({
             {MUSCLE_GROUPS.map((muscle) => {
               const sets = weeklySummary.byMuscle[muscle] ?? 0
               const band = getMuscleVolumeBand(sets)
+              const target = getMuscleVolumeTarget(muscle)
+              const goal = target
+                ? getMuscleVolumeGoalStatus(sets, target)
+                : { label: 'None', color: '#8b6c4a', reachedMin: false, reachedOptimal: false }
               const widthPercent = Math.max(4, (sets / maxSets) * 100)
+              const minPct = target ? (target.minSets / maxSets) * 100 : 0
+              const optPct = target ? (target.optimalSets / maxSets) * 100 : 0
 
               return (
                 <div key={muscle} className="muscle-volume-bar-row">
                   <div className="muscle-volume-bar-label">
                     <strong>{muscle}</strong>
-                    <span>{sets > 0 ? `${sets.toFixed(1)} sets` : '—'}</span>
+                    <span className="muscle-volume-goal-badge" style={{ color: goal.color }}>
+                      {sets.toFixed(1)} sets
+                      {target && (
+                        <small>
+                          {' '}
+                          {goal.reachedOptimal ? '✓ optimal' : goal.reachedMin ? '✓ minimum' : `(${target.minSets}-${target.optimalSets})`}
+                        </small>
+                      )}
+                    </span>
                   </div>
                   <div className="muscle-volume-bar-track">
+                    {target && (
+                      <>
+                        <div
+                          className="muscle-volume-marker muscle-volume-marker-min"
+                          style={{ left: `${Math.min(minPct, 95)}%` }}
+                          title={`Minimum: ${target.minSets} sets`}
+                        />
+                        <div
+                          className="muscle-volume-marker muscle-volume-marker-opt"
+                          style={{ left: `${Math.min(optPct, 95)}%` }}
+                          title={`Optimal: ${target.optimalSets} sets`}
+                        />
+                      </>
+                    )}
                     <div
                       className="muscle-volume-bar-fill"
                       style={{
@@ -5756,6 +5787,46 @@ function MuscleVolumeWorkspace({
                 </div>
               )
             })}
+          </div>
+        </section>
+
+        <section className="section-panel muscle-research-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Evidence base</p>
+              <h2>How targets are set</h2>
+            </div>
+            <p>
+              Volume recommendations are derived from peer-reviewed meta-analyses.
+            </p>
+          </div>
+
+          <div className="muscle-research-grid">
+            {MUSCLE_VOLUME_TARGETS.map((t) => (
+              <details key={t.muscle} className="muscle-research-card">
+                <summary>
+                  <strong>{t.muscle}</strong>
+                  <span>
+                    {t.minSets}-{t.optimalSets}
+                    <small>sets/week</small>
+                  </span>
+                </summary>
+                <p>{t.note}</p>
+              </details>
+            ))}
+          </div>
+
+          <div className="muscle-research-footer">
+            <p>
+              <strong>Fractional counting:</strong>{' '}
+              Bench press = 1.0 chest + 0.5 triceps + 0.5 shoulders. Rows = 1.0 back + 0.5 biceps.
+              This matches the "fractional" quantification method validated in the 2025 dose-response meta-regression.
+            </p>
+            <p>
+              <strong>Research:</strong>{' '}
+              Pelland et al. (2025) Sports Medicine; Baz-Valle et al. (2022) J Hum Kinet;
+              Schoenfeld et al. (2017) J Sports Sci; Henselmans (bayesianbodybuilding.com).
+            </p>
           </div>
         </section>
 

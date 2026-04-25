@@ -1920,3 +1920,130 @@ body.app-drawer-open {
   border-radius: 999px;
   transition: width 300ms ease;
 }
+
+/* Goal markers */
+.muscle-volume-bar-track {
+  position: relative;
+}
+
+.muscle-volume-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.muscle-volume-marker-min {
+  background: repeating-linear-gradient(
+    to bottom,
+    #b56b21 0px,
+    #b56b21 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}
+
+.muscle-volume-marker-opt {
+  background: #2f7d69;
+}
+
+.muscle-volume-goal-badge {
+  font-size: 0.78rem;
+}
+
+.muscle-volume-goal-badge small {
+  margin-left: 0.35rem;
+  color: var(--muted);
+}
+
+/* Research panel */
+.muscle-research-panel {
+  margin-top: 1.5rem;
+}
+
+.muscle-research-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+@media (min-width: 640px) {
+  .muscle-research-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .muscle-research-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.muscle-research-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+
+.muscle-research-card:hover {
+  background: var(--surface-2);
+}
+
+.muscle-research-card summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.muscle-research-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.muscle-research-card summary strong {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.muscle-research-card summary span {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.muscle-research-card summary span small {
+  margin-left: 0.25rem;
+}
+
+.muscle-research-card >p {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.muscle-research-footer {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.muscle-research-footer p {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 0.35rem;
+}
+
+.muscle-research-footer p strong {
+  color: var(--text);
+  font-weight: 600;
+}
