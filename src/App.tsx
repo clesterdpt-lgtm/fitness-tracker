@@ -95,6 +95,7 @@ import {
   getMuscleVolumeGoalStatus,
   getMuscleVolumeTarget,
   getMuscleVolumeTargets,
+  getWeeklyMuscleSummary,
   MUSCLE_GROUPS,
   sortMuscleVolumeEntries,
   type MuscleGroup,
