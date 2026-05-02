@@ -12,6 +12,19 @@ export type NutritionTargets = {
   hydration: number
 }
 
+export type FoodEntry = {
+  id: string
+  date: string
+  time: string
+  name: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  hydration: number
+  createdAt: string
+}
+
 export type NutritionEntry = {
   id: string
   date: string
@@ -124,6 +137,33 @@ export function sortNutritionEntries(entries: NutritionEntry[]) {
     (left, right) =>
       compareDateInputs(right.date, left.date) ||
       right.createdAt.localeCompare(left.createdAt),
+  )
+}
+
+export function sortFoodEntries(entries: FoodEntry[]) {
+  return [...entries].toSorted(
+    (left, right) =>
+      compareDateInputs(right.date, left.date) ||
+      right.time.localeCompare(left.time) ||
+      right.createdAt.localeCompare(left.createdAt),
+  )
+}
+
+export function getRunningNutritionTotals(
+  foodEntries: FoodEntry[],
+  date: string,
+) {
+  const dayEntries = foodEntries.filter((entry) => entry.date === date)
+
+  return dayEntries.reduce(
+    (totals, entry) => ({
+      calories: totals.calories + entry.calories,
+      protein: totals.protein + entry.protein,
+      carbs: totals.carbs + entry.carbs,
+      fat: totals.fat + entry.fat,
+      hydration: Math.round((totals.hydration + entry.hydration) * 10) / 10,
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0, hydration: 0 },
   )
 }
 

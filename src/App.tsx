@@ -42,9 +42,12 @@ import {
   getNutritionBand,
   getNutritionLogCount,
   sortNutritionEntries,
+  sortFoodEntries,
+  getRunningNutritionTotals,
   type NutritionBand,
   type NutritionDailyPoint,
   type NutritionEntry,
+  type FoodEntry,
   type NutritionTargets,
 } from './lib/nutrition'
 import {
@@ -169,6 +172,17 @@ type NutritionTargetsFormState = {
   hydration: string
 }
 
+type FoodEntryFormState = {
+  date: string
+  time: string
+  name: string
+  calories: string
+  protein: string
+  carbs: string
+  fat: string
+  hydration: string
+}
+
 type CustomHomeEquipmentFormState = {
   name: string
   category: HomeEquipmentCategory
@@ -241,6 +255,7 @@ const RECOVERY_STORAGE_KEY = 'fitness-tracker.recovery.v1'
 const INJURY_CASES_STORAGE_KEY = 'fitness-tracker.injury-cases.v1'
 const INJURY_CHECK_INS_STORAGE_KEY = 'fitness-tracker.injury-check-ins.v1'
 const NUTRITION_STORAGE_KEY = 'fitness-tracker.nutrition.v1'
+const FOOD_ENTRIES_STORAGE_KEY = 'fitness-tracker.food-entries.v1'
 const NUTRITION_TARGETS_STORAGE_KEY = 'fitness-tracker.nutrition-targets.v1'
 const HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.home-equipment.v1'
 const CUSTOM_HOME_EQUIPMENT_STORAGE_KEY = 'fitness-tracker.custom-home-equipment.v1'
@@ -640,6 +655,22 @@ function createEmptyNutritionFormState(date = formatDateInput()): NutritionFormS
   }
 }
 
+function createEmptyFoodEntryFormState(date = formatDateInput()): FoodEntryFormState {
+  const now = new Date()
+  const hours = now.getHours().toString().padStart(2, '0')
+  const minutes = now.getMinutes().toString().padStart(2, '0')
+  return {
+    date,
+    time: `${hours}:${minutes}`,
+    name: '',
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+    hydration: '',
+  }
+}
+
 function createEmptyWorkoutGeneratorFormState(
   date = formatDateInput(),
 ): WorkoutGeneratorFormState {
@@ -935,6 +966,27 @@ function isStoredInjuryCheckIn(value: unknown): value is InjuryCheckIn {
   )
 }
 
+function isStoredFoodEntry(value: unknown): value is FoodEntry {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const entry = value as Record<string, unknown>
+
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.date === 'string' &&
+    typeof entry.time === 'string' &&
+    typeof entry.name === 'string' &&
+    typeof entry.calories === 'number' &&
+    typeof entry.protein === 'number' &&
+    typeof entry.carbs === 'number' &&
+    typeof entry.fat === 'number' &&
+    typeof entry.hydration === 'number' &&
+    typeof entry.createdAt === 'string'
+  )
+}
+
 function isStoredNutritionEntry(value: unknown): value is NutritionEntry {
   if (!value || typeof value !== 'object') {
     return false
@@ -1035,6 +1087,30 @@ function loadStoredSessions() {
         notes: typeof session.notes === 'string' ? session.notes : '',
       })),
     )
+  } catch {
+    return []
+  }
+}
+
+function loadStoredFoodEntries() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(FOOD_ENTRIES_STORAGE_KEY)
+
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return sortFoodEntries(parsed.filter(isStoredFoodEntry))
   } catch {
     return []
   }
@@ -2572,6 +2648,63 @@ function RecentRecoveryTable({
               <td>{entry.energy}/5</td>
               <td>{entry.soreness}/5</td>
               <td>{entry.stress}/5</td>
+              <td>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDelete(entry.id)}
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RecentFoodEntriesTable({
+  entries,
+  onDelete,
+}: {
+  entries: FoodEntry[]
+  onDelete: (entryId: string) => void
+}) {
+  if (!entries.length) {
+    return null
+  }
+
+  return (
+    <div className="session-table-wrapper" style={{ marginTop: '2rem' }}>
+      <p className="section-kicker">Individual food entries</p>
+      <table className="session-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Name</th>
+            <th>Calories</th>
+            <th>Protein</th>
+            <th>Carbs</th>
+            <th>Fat</th>
+            <th>Hydration</th>
+            <th aria-label="Delete entry" />
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id}>
+              <td>
+                <div className="session-title">{entry.time}</div>
+                <div className="session-notes">{formatShortDate(entry.date)}</div>
+              </td>
+              <td>{entry.name}</td>
+              <td>{formatCalories(entry.calories)}</td>
+              <td>{formatGrams(entry.protein)}</td>
+              <td>{formatGrams(entry.carbs)}</td>
+              <td>{formatGrams(entry.fat)}</td>
+              <td>{formatHydration(entry.hydration)}</td>
               <td>
                 <button
                   type="button"
@@ -4426,19 +4559,25 @@ function NutritionWorkspace({
   nutritionTargets,
   nutritionFormState,
   nutritionTargetsFormState,
+  foodEntryFormState,
+  foodEntries,
   onNutritionInputChange,
   onNutritionTargetsInputChange,
+  onFoodEntryInputChange,
   onAddEntry,
+  onAddFoodEntry,
   onSaveTargets,
   onLoadDemoData,
   onClearAll,
   nutritionEntries,
   errorMessage,
+  foodErrorMessage,
   targetsErrorMessage,
   scorePreview,
   nutritionSeries,
   recentNutritionEntries,
   onDeleteEntry,
+  onDeleteFoodEntry,
 }: {
   latestNutritionEntry: NutritionEntry | undefined
   nutritionAverage: number | null
@@ -4448,22 +4587,28 @@ function NutritionWorkspace({
   nutritionTargets: NutritionTargets
   nutritionFormState: NutritionFormState
   nutritionTargetsFormState: NutritionTargetsFormState
+  foodEntryFormState: FoodEntryFormState
+  foodEntries: FoodEntry[]
   onNutritionInputChange: (field: keyof NutritionFormState, value: string) => void
   onNutritionTargetsInputChange: (
     field: keyof NutritionTargetsFormState,
     value: string,
   ) => void
+  onFoodEntryInputChange: (field: keyof FoodEntryFormState, value: string) => void
   onAddEntry: (event: FormEvent<HTMLFormElement>) => void
+  onAddFoodEntry: (event: FormEvent<HTMLFormElement>) => void
   onSaveTargets: (event: FormEvent<HTMLFormElement>) => void
   onLoadDemoData: () => void
   onClearAll: () => void
   nutritionEntries: NutritionEntry[]
   errorMessage: string
+  foodErrorMessage: string
   targetsErrorMessage: string
   scorePreview: number | null
   nutritionSeries: NutritionDailyPoint[]
   recentNutritionEntries: NutritionEntry[]
   onDeleteEntry: (entryId: string) => void
+  onDeleteFoodEntry: (entryId: string) => void
 }) {
   return (
     <div className="content-shell">
@@ -4528,12 +4673,150 @@ function NutritionWorkspace({
         <section className="entry-panel section-panel">
           <div className="section-heading">
             <div>
+              <p className="section-kicker">Individual input</p>
+              <h2>Log food</h2>
+            </div>
+            <p>
+              Add individual food items to track a running total for the day.
+            </p>
+          </div>
+
+          <form className="entry-form" onSubmit={onAddFoodEntry}>
+            <div className="entry-grid">
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={foodEntryFormState.date}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('date', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Time
+                <input
+                  type="time"
+                  value={foodEntryFormState.time}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('time', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Name
+                <input
+                  type="text"
+                  placeholder="e.g., Chicken breast, Rice"
+                  value={foodEntryFormState.name}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('name', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Calories
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={foodEntryFormState.calories}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('calories', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Protein (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={foodEntryFormState.protein}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('protein', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Carbs (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={foodEntryFormState.carbs}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('carbs', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Fat (g)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={foodEntryFormState.fat}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('fat', event.currentTarget.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Hydration (L)
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.1"
+                  value={foodEntryFormState.hydration}
+                  onChange={(event) =>
+                    onFoodEntryInputChange('hydration', event.currentTarget.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="entry-footer">
+              <div className="load-preview">
+                <span>Total food entries</span>
+                <strong>{foodEntries.length}</strong>
+              </div>
+              <div className="entry-actions">
+                <button type="submit" className="primary-button">
+                  Save food
+                </button>
+              </div>
+            </div>
+
+            {foodErrorMessage ? <p className="form-error">{foodErrorMessage}</p> : null}
+          </form>
+
+          <RecentFoodEntriesTable
+            entries={foodEntries.slice(0, 50)}
+            onDelete={onDeleteFoodEntry}
+          />
+        </section>
+
+        <section className="entry-panel section-panel" style={{ marginTop: '2rem' }}>
+          <div className="section-heading">
+            <div>
               <p className="section-kicker">Daily input</p>
               <h2>Log a nutrition day</h2>
             </div>
             <p>
-              This first version treats nutrition as one end-of-day entry so
-              you can quickly compare totals against your plan.
+              This treats nutrition as one end-of-day entry. By default, it acts as a running total of the food entries below, but you can overwrite any field.
             </p>
           </div>
 
@@ -6101,6 +6384,9 @@ function App() {
   const [nutritionEntries, setNutritionEntries] = useState<NutritionEntry[]>(() =>
     loadStoredNutritionEntries(),
   )
+  const [foodEntries, setFoodEntries] = useState<FoodEntry[]>(() =>
+    loadStoredFoodEntries(),
+  )
   const [nutritionTargets, setNutritionTargets] = useState<NutritionTargets>(() =>
     loadStoredNutritionTargets(),
   )
@@ -6143,6 +6429,9 @@ function App() {
   const [nutritionFormState, setNutritionFormState] = useState<NutritionFormState>(() =>
     createEmptyNutritionFormState(),
   )
+  const [foodEntryFormState, setFoodEntryFormState] = useState<FoodEntryFormState>(() =>
+    createEmptyFoodEntryFormState(),
+  )
   const [workoutGeneratorFormState, setWorkoutGeneratorFormState] =
     useState<WorkoutGeneratorFormState>(() => createEmptyWorkoutGeneratorFormState())
   const [nutritionTargetsFormState, setNutritionTargetsFormState] =
@@ -6158,6 +6447,7 @@ function App() {
   const [injuryCaseErrorMessage, setInjuryCaseErrorMessage] = useState('')
   const [injuryCheckInErrorMessage, setInjuryCheckInErrorMessage] = useState('')
   const [nutritionErrorMessage, setNutritionErrorMessage] = useState('')
+  const [foodErrorMessage, setFoodErrorMessage] = useState('')
   const [workoutGeneratorMessage, setWorkoutGeneratorMessage] = useState('')
   const [workoutSuggestionOverrideState, setWorkoutSuggestionOverrideState] =
     useState<WorkoutSuggestionOverrideState>({
@@ -6409,6 +6699,34 @@ function App() {
 
   useEffect(() => {
     window.localStorage.setItem(
+      FOOD_ENTRIES_STORAGE_KEY,
+      JSON.stringify(foodEntries),
+    )
+  }, [foodEntries])
+
+  // Sync nutrition form with running totals from food entries for the selected day
+  useEffect(() => {
+    const runningTotals = getRunningNutritionTotals(foodEntries, nutritionFormState.date)
+    if (
+      runningTotals.calories > 0 ||
+      runningTotals.protein > 0 ||
+      runningTotals.carbs > 0 ||
+      runningTotals.fat > 0 ||
+      runningTotals.hydration > 0
+    ) {
+      setNutritionFormState((current) => ({
+        ...current,
+        calories: runningTotals.calories.toString(),
+        protein: runningTotals.protein.toString(),
+        carbs: runningTotals.carbs.toString(),
+        fat: runningTotals.fat.toString(),
+        hydration: runningTotals.hydration.toString(),
+      }))
+    }
+  }, [nutritionFormState.date, foodEntries])
+
+  useEffect(() => {
+    window.localStorage.setItem(
       MUSCLE_VOLUME_STORAGE_KEY,
       JSON.stringify(muscleVolumeEntries),
     )
@@ -6468,6 +6786,58 @@ function App() {
       ...current,
       [field]: value,
     }))
+  }
+
+  const handleFoodEntryInputChange = (
+    field: keyof FoodEntryFormState,
+    value: string,
+  ) => {
+    setFoodEntryFormState((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleAddFoodEntry = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const calories = parsePositiveNumber(foodEntryFormState.calories) ?? 0
+    const protein = parsePositiveNumber(foodEntryFormState.protein) ?? 0
+    const carbs = parsePositiveNumber(foodEntryFormState.carbs) ?? 0
+    const fat = parsePositiveNumber(foodEntryFormState.fat) ?? 0
+    const hydration = parsePositiveNumber(foodEntryFormState.hydration) ?? 0
+
+    if (!foodEntryFormState.name.trim()) {
+      setFoodErrorMessage('Enter a name for the food item.')
+      return
+    }
+
+    if (!foodEntryFormState.date || !foodEntryFormState.time) {
+      setFoodErrorMessage('Provide both date and time for the entry.')
+      return
+    }
+
+    const nextEntry: FoodEntry = {
+      id: createEntryId('food'),
+      date: foodEntryFormState.date,
+      time: foodEntryFormState.time,
+      name: foodEntryFormState.name.trim(),
+      calories,
+      protein,
+      carbs,
+      fat,
+      hydration,
+      createdAt: new Date().toISOString(),
+    }
+
+    const newFoodEntries = sortFoodEntries([nextEntry, ...foodEntries])
+    setFoodEntries(newFoodEntries)
+
+    setFoodEntryFormState((current) => ({
+      ...createEmptyFoodEntryFormState(current.date),
+      time: current.time, // keep the same time to make adding easier
+    }))
+    setFoodErrorMessage('')
   }
 
   const handleRecoveryInputChange = (
@@ -7127,16 +7497,18 @@ function App() {
   }
 
   const handleClearNutrition = () => {
-    if (!nutritionEntries.length) {
+    if (!nutritionEntries.length && !foodEntries.length) {
       return
     }
 
-    if (!window.confirm('Clear every saved nutrition day from this browser?')) {
+    if (!window.confirm('Clear every saved nutrition day and individual food entry from this browser?')) {
       return
     }
 
     setNutritionEntries([])
+    setFoodEntries([])
     setNutritionErrorMessage('')
+    setFoodErrorMessage('')
   }
 
   const handleDeleteSession = (sessionId: string) => {
@@ -7148,6 +7520,12 @@ function App() {
   const handleDeleteRecoveryEntry = (entryId: string) => {
     setRecoveryEntries((current) =>
       current.filter((entry) => entry.id !== entryId),
+    )
+  }
+
+  const handleDeleteFoodEntry = (entryId: string) => {
+    setFoodEntries((current) =>
+      current.filter((entry) => entry.id !== entryId)
     )
   }
 
@@ -7429,19 +7807,25 @@ function App() {
             nutritionTargets={nutritionTargets}
             nutritionFormState={nutritionFormState}
             nutritionTargetsFormState={nutritionTargetsFormState}
+            foodEntryFormState={foodEntryFormState}
+            foodEntries={foodEntries}
             onNutritionInputChange={handleNutritionInputChange}
             onNutritionTargetsInputChange={handleNutritionTargetsInputChange}
+            onFoodEntryInputChange={handleFoodEntryInputChange}
             onAddEntry={handleAddNutritionEntry}
+            onAddFoodEntry={handleAddFoodEntry}
             onSaveTargets={handleSaveNutritionTargets}
             onLoadDemoData={handleLoadNutritionDemoData}
             onClearAll={handleClearNutrition}
             nutritionEntries={nutritionEntries}
             errorMessage={nutritionErrorMessage}
+            foodErrorMessage={foodErrorMessage}
             targetsErrorMessage={nutritionTargetsErrorMessage}
             scorePreview={nutritionScorePreview}
             nutritionSeries={nutritionSeries}
             recentNutritionEntries={recentNutritionEntries}
             onDeleteEntry={handleDeleteNutritionEntry}
+            onDeleteFoodEntry={handleDeleteFoodEntry}
           />
         ) : activeSection === 'muscle-volume' ? (
           <MuscleVolumeWorkspace
